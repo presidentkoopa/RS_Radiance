@@ -1,0 +1,39 @@
+// The toggle is a NETWORK event, not a local console command. That is what
+// makes it arrive on every client on the same tic, so a torch switching on is
+// something the whole game agrees happened rather than a change on one machine.
+alias rsfl_flashlight "netevent rsfl_toggle"
+defaultbind f "rsfl_flashlight"
+
+// LISTED IN CUSTOMIZE CONTROLS, or the default bind is the only bind there is.
+//
+// defaultbind sets a key; it does not put the action anywhere the player can
+// see or change it. Without these two lines the torch was on F and nowhere
+// else -- which is close to useless in a headset, where the whole point is to
+// put it on a controller button you can reach without finding a keyboard.
+//
+// The section gets its own heading so it does not disappear into the middle of
+// the weapon binds.
+AddKeySection "Flashlight" RSFlashlight
+AddMenuKey "Toggle flashlight" rsfl_flashlight
+
+// RS_Sweeps -- keys.
+//
+// NO BOM IN THIS FILE: a UTF-8 byte order mark makes GZDoom read the first
+// alias name with the mark glued on, and the alias silently does nothing.
+//
+// SEND ONE SWEEP. With the standing timing on Once, this sends a single pass
+// across the level -- the only other thing that sends one is a new map. A
+// NETWORK event, not a console command, so every client starts the pass on the
+// same tic. Nothing is bound by default: a mod that helps itself to a key has
+// stolen one somebody already assigned.
+alias rss_sweep_now "netevent rss_sweep"
+
+// addmenukey needs a section to hang under, and its own heading keeps it from
+// disappearing into somebody else's block in Customize Controls.
+addkeysection "Sweeps" RSSweeps
+addmenukey "Send a sweep (Once timing)" rss_sweep_now
+
+// A random Look, from the menu or a key.
+alias rsr_surprise "netevent rsr_surprise"
+addkeysection "Radiance" RSRadiance
+addmenukey "Random Look" rsr_surprise

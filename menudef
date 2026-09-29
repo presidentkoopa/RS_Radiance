@@ -1,0 +1,1070 @@
+// RS_Radiance -- menus. Fun on top, Advanced underneath.
+
+OptionValue "RSR_Look"
+{
+	 0, "None"
+	 1, "Golden Hour"
+	 2, "Vaporwave"
+	 3, "Frostbite"
+	 4, "Toxic"
+	 5, "Storm"
+	 6, "Drowned"
+	 7, "Signal Lost"
+	 8, "Hellscape"
+	 9, "Low Power"
+	10, "Cathedral"
+	11, "Neon"
+	12, "Red Alert"
+	13, "Lantern"
+	14, "Blackout"
+	15, "Thermal"
+}
+
+OptionMenu "RSRMain"
+{
+	Class "RSR_MainMenu"
+	Title "Radiance"
+	Option "Look", "rsr_look", "RSR_Look"
+	Command "Random Look", "rsr_surprise"
+	Command "Reset Look", "rsr_look_applied -1"
+	StaticText ""
+	Option "New Look each map", "rsr_rand_map", "OnOff"
+	Option "New Look when you die", "rsr_rand_death", "OnOff"
+	Option "React to the action", "rsr_reactive", "OnOff"
+	StaticText ""
+	Option "Darkness", "rsd_enabled", "OnOff"
+	Slider "  Amount", "rsd_adjust", 0, 256, 8, 0
+	Option "Glow", "gitd_enabled", "OnOff"
+	Slider "  Brightness", "gitd_master", 0.0, 2.0, 0.05, 2
+	Option "Fog", "rsf_enabled", "OnOff"
+	Slider "  Thickness", "rsf_density", 0.0, 3.0, 0.05, 2
+	Option "Sweeps", "rss_enabled", "OnOff"
+	Slider "  Brightness", "rss_intensity", 0.0, 3.0, 0.05, 2
+	Option "Bloom", "gl_bloom", "OnOff"
+	Slider "  Size", "gl_bloom_amount", 0.1, 6.0, 0.05, 2
+	Option "Flashlight", "rsfl_enabled", "OnOff"
+	Slider "  Brightness", "rsfl_density", 0.0, 2.0, 0.05, 2
+	StaticText ""
+	Submenu "Advanced", "RSRAdvanced"
+}
+
+OptionMenu "RSRAdvanced"
+{
+	Title "Advanced"
+	Submenu "Darkness", "RSDMain"
+	Submenu "Glow", "GITDMain"
+	Submenu "Fog", "RSFMain"
+	Submenu "Sweeps", "RSSMain"
+	Submenu "Bloom", "RSBMain"
+	Submenu "Flashlight", "RSFLMain"
+}
+
+AddOptionMenu "OptionsMenu"
+{
+	Submenu "Radiance", "RSRMain"
+}
+
+// ================= Darkness =================
+OptionValue "RSD_Preset"
+{
+	 0, "Off"
+	 1, "Light"
+	 2, "Classic"
+	 3, "Dark"
+	 4, "Horizon"
+	 5, "Tunnel"
+	 6, "Abyss"
+	 7, "Undertow"
+	 8, "Silt"
+	 9, "Nightfall"
+	10, "Overcast"
+	11, "Crush"
+	12, "Cavern"
+	13, "Ember"
+	14, "Gloaming"
+	15, "Vault"
+	16, "Lantern"
+	17, "Basement"
+	18, "Blackout (pitch black)"
+	19, "Starless (black but the brightest)"
+}
+
+OptionValue "RSD_Mode"
+{
+	0, "Off"
+	1, "Subtract"
+	2, "Compress"
+	3, "Cap brightest"
+	4, "Deepen shadows"
+}
+
+OptionValue "RSD_HeightMode"
+{
+	0, "Fixed height"
+	1, "Follows your feet"
+}
+
+OptionMenu "RSDMain"
+{
+	Title "Darkness"
+	Option "Enabled", "rsd_enabled", "OnOff"
+	Option "Preset", "rsd_preset", "RSD_Preset"
+	Command "Re-apply preset", "rsd_preset_applied -1"
+	StaticText ""
+	Submenu "Curve", "RSDCurve"
+	Submenu "Distance", "RSDDist"
+	Submenu "Height", "RSDHeight"
+	Submenu "Things In The Dark", "RSDActors"
+}
+
+OptionMenu "RSDCurve"
+{
+	Class "RSD_CurveMenu"
+	Title "Curve"
+	Option "Curve", "rsd_mode", "RSD_Mode"
+	Slider "Amount", "rsd_adjust", 0, 256, 4, 0
+	StaticText ""
+	Slider "Minimum light", "rsd_minlight", 0, 255, 1, 0
+	StaticText ""
+	Slider "Pre-gain (before curve)", "rsd_pregain", -128, 128, 2, 0
+	Slider "Post-gain (after curve)", "rsd_postgain", -128, 128, 2, 0
+}
+
+OptionMenu "RSDDist"
+{
+	Title "Distance"
+	Slider "Depth", "rsd_dist", 0, 1, 0.05, 2
+	Slider "Range (map units)", "rsd_dist_range", 64, 4096, 64, 0
+}
+
+// Which side of the reference the dark gathers on. Below is a cellar; above is a ceiling
+// that swallows the light while the floor still burns.
+OptionValue "RSD_HeightDir"
+{
+	0, "Below the reference"
+	1, "Above the reference"
+}
+
+OptionMenu "RSDHeight"
+{
+	Title "Height"
+	Slider "Depth", "rsd_height", 0, 1, 0.05, 2
+	Option "Pools", "rsd_height_dir", "RSD_HeightDir"
+	Slider "Range (map units)", "rsd_height_range", 32, 1024, 16, 0
+	StaticText ""
+	Option "Reference", "rsd_height_mode", "RSD_HeightMode"
+	Slider "  Fixed height (Z)", "rsd_height_z", -2048, 2048, 32, 0
+	StaticText ""
+	Slider "  Offset from you", "rsd_height_offset", -256, 256, 8, 0
+}
+
+OptionMenu "RSDActors"
+{
+	Title "Things In The Dark"
+	Slider "Spare actors", "rsd_actor_spare", 0.0, 1.0, 0.05, 2
+}
+
+// ================= GlowInTheDark =================
+OptionValue "GITD_WaveShape"
+{
+	1, "Radial (ground plane)"
+	2, "Plane along X"
+	3, "Plane along Z"
+	4, "Spherical"
+	5, "Vertical (rises)"
+}
+
+OptionValue "GITD_Texture"
+{
+	 0, "From the preset"
+	 1, "None"
+	 2, "Grain"
+	 3, "Dirt"
+	 4, "Scanlines"
+	 5, "Circuit traces"
+	 6, "Pulse bands"
+	 7, "Cracks"
+	 8, "Crazed"
+	 9, "Frost"
+	10, "Mottle"
+	11, "Scales"
+	12, "Etched (grain + lines)"
+	13, "Corroded (grain + cracks)"
+	14, "Weave (lines + cells)"
+}
+
+OptionValue "GITD_Preset"
+{
+	 0, "Vanilla+"
+	 1, "Bioluminescent"
+	 2, "Reactor"
+	 3, "Neon"
+	 4, "Ember"
+	 5, "Frostbite"
+	 6, "Blacklight"
+	 7, "Cathedral"
+	 8, "Pulse"
+	 9, "Hazard"
+	10, "Circuitry"
+	11, "Deep"
+	12, "Furnace"
+	13, "Hellscape"
+	14, "Red Alert"
+	15, "Spore"
+	16, "Signal"
+	17, "Prism"
+	18, "Ascent"
+	19, "Beacon"
+	20, "Trawler"
+	21, "Filament"
+	22, "Tide"
+	23, "Crosswind"
+	24, "Hue Drift"
+	25, "Moss"
+	26, "Bad Ballast"
+	27, "Sump"
+	28, "Vaporwave"
+	29, "Strobe (loud)"
+	30, "Chromawave"
+	31, "Overdrive (loud)"
+	32, "Veins"
+	33, "Lost Signal"
+	34, "Abyssal"
+	35, "Glacier"
+	36, "Klaxon"
+	37, "Inferno"
+	38, "Ultraviolet"
+	39, "Acid"
+	40, "Bubblegum"
+	41, "Voltage"
+	42, "Nave (Cathedral with a floor)"
+}
+
+OptionValue "GITD_OnDeath"
+{
+	0, "Off"
+	1, "New colours (same preset)"
+	2, "New preset"
+}
+
+OptionValue "GITD_Policy"
+{
+	0, "Fixed colour"
+	1, "Random per sector"
+	2, "Texture / material"
+	3, "Light level"
+}
+
+OptionValue "GITD_Falloff"
+{
+	0, "Linear"
+	1, "Quadratic"
+	2, "Square root"
+	3, "Exponential"
+}
+
+OptionValue "GITD_Far"
+{
+	0, "Off (single colour)"
+	1, "Auto-derived"
+	2, "Explicit colour"
+}
+
+OptionValue "GITD_Origin"
+{
+	0, "Map centre"
+	1, "Follows player"
+}
+
+OptionValue "GITD_LightDir"
+{
+	0, "Bright rooms glow more"
+	1, "Dark rooms glow more"
+}
+
+OptionMenu "GITDMain"
+{
+	Class "GITD_MainMenu"
+	Title "Glow"
+	Option "Enabled", "gitd_enabled", "OnOff"
+	Option "Preset", "gitd_preset", "GITD_Preset"
+	Option "Texture", "gitd_texture", "GITD_Texture"
+	StaticText ""
+	Option "Seamless walls", "gitd_seamless_walls", "OnOff"
+	Slider "  Blend across sectors", "gitd_wall_blend", 0, 1, 0.05, 2
+	StaticText ""
+	Option "Seamless corners", "gitd_seamless", "OnOff"
+	Option "  Match reach and falloff too", "gitd_seamless_shape", "OnOff"
+	Option "  Keep them seamless under a wave", "gitd_seamless_wave", "OnOff"
+	StaticText ""
+	Option "Emergency lighting", "gitd_emergency", "OnOff"
+	Slider "  Comes on at", "gitd_emergency_share", 0.05, 1.0, 0.05, 2
+	Slider "  Brightness", "gitd_emergency_gain", 0.5, 3.0, 0.05, 2
+	ColorPicker "  Colour", "gitd_emergency_color"
+	StaticText ""
+	Option "Fire lights the room", "gitd_firelight", "OnOff"
+	Slider "  How much colour", "gitd_firelight_mix", 0.0, 1.0, 0.05, 2
+	Slider "  Brightness", "gitd_firelight_gain", 0.5, 3.0, 0.05, 2
+	ColorPicker "  Colour", "gitd_firelight_color"
+
+	StaticText ""
+	Slider "Overall speed", "gitd_speed", 0.0, 2.0, 0.05, 2
+	Slider "Throb speed", "gitd_pulse_rate", 0.0, 4.0, 0.05, 2
+	StaticText ""
+	Option "Shuffle preset each map", "gitd_shuffle", "OnOff"
+	Option "Randomize on death", "gitd_ondeath", "GITD_OnDeath"
+	StaticText ""
+	Submenu "Wall - Floor Seam", "GITDLaneWF"
+	Submenu "Wall - Ceiling Seam", "GITDLaneWC"
+	Submenu "Floor Face", "GITDLaneFG"
+	Submenu "Ceiling Face", "GITDLaneCG"
+	StaticText ""
+	Submenu "Liquids", "GITDLiquid"
+	Submenu "Colour Randomiser", "GITDRandom"
+	StaticText ""
+	Submenu "Wave", "GITDWave"
+	Submenu "Surface Detail", "GITDDetail"
+}
+
+OptionMenu "GITDLaneWF"
+{
+	Title "Wall Glow - Floor Seam"
+	Option "Enabled", "gitd_wf_on", "OnOff"
+	Option "Colour source", "gitd_wf_policy", "GITD_Policy"
+	ColorPicker "Fixed colour", "gitd_wf_color"
+	StaticText ""
+	Slider "Reach", "gitd_wf_reach", 0, 512, 8, 1
+	Slider "Starts in from the seam", "gitd_wf_inset", 0, 256, 4, 1
+	Option "Falloff", "gitd_wf_falloff", "GITD_Falloff"
+	Slider "Intensity", "gitd_wf_intensity", 0, 3, 0.05, 2
+	StaticText ""
+	Option "Fades toward", "gitd_wf_far", "GITD_Far"
+	ColorPicker "Explicit fade colour", "gitd_wf_farcolor"
+}
+
+OptionMenu "GITDLaneWC"
+{
+	Title "Wall Glow - Ceiling Seam"
+	Option "Enabled", "gitd_wc_on", "OnOff"
+	Option "Colour source", "gitd_wc_policy", "GITD_Policy"
+	ColorPicker "Fixed colour", "gitd_wc_color"
+	StaticText ""
+	Slider "Reach", "gitd_wc_reach", 0, 512, 8, 1
+	Slider "Starts in from the seam", "gitd_wc_inset", 0, 256, 4, 1
+	Option "Falloff", "gitd_wc_falloff", "GITD_Falloff"
+	Slider "Intensity", "gitd_wc_intensity", 0, 3, 0.05, 2
+	StaticText ""
+	Option "Fades toward", "gitd_wc_far", "GITD_Far"
+	ColorPicker "Explicit fade colour", "gitd_wc_farcolor"
+}
+
+OptionMenu "GITDLaneFG"
+{
+	Title "Floor Face"
+	Option "Enabled", "gitd_fg_on", "OnOff"
+	Option "Colour source", "gitd_fg_policy", "GITD_Policy"
+	ColorPicker "Fixed colour", "gitd_fg_color"
+	StaticText ""
+	Slider "Reach", "gitd_fg_reach", 0, 512, 8, 1
+	Slider "Starts in from the seam", "gitd_fg_inset", 0, 256, 4, 1
+	Option "Falloff", "gitd_fg_falloff", "GITD_Falloff"
+	Slider "Intensity", "gitd_fg_intensity", 0, 3, 0.05, 2
+	StaticText ""
+	Option "Fades toward", "gitd_fg_far", "GITD_Far"
+	ColorPicker "Explicit fade colour", "gitd_fg_farcolor"
+}
+
+OptionMenu "GITDLaneCG"
+{
+	Title "Ceiling Face"
+	Option "Enabled", "gitd_cg_on", "OnOff"
+	Option "Colour source", "gitd_cg_policy", "GITD_Policy"
+	ColorPicker "Fixed colour", "gitd_cg_color"
+	StaticText ""
+	Slider "Reach", "gitd_cg_reach", 0, 512, 8, 1
+	Slider "Starts in from the seam", "gitd_cg_inset", 0, 256, 4, 1
+	Option "Falloff", "gitd_cg_falloff", "GITD_Falloff"
+	Slider "Intensity", "gitd_cg_intensity", 0, 3, 0.05, 2
+	StaticText ""
+	Option "Fades toward", "gitd_cg_far", "GITD_Far"
+	ColorPicker "Explicit fade colour", "gitd_cg_farcolor"
+}
+
+OptionMenu "GITDLiquid"
+{
+	Title "Liquids"
+	Option "Enabled", "gitd_liq_on", "OnOff"
+	Option "Also light the walls above", "gitd_liq_walls", "OnOff"
+	StaticText ""
+	Option "Colour source", "gitd_liq_policy", "GITD_Policy"
+	ColorPicker "Fixed colour", "gitd_liq_color"
+	Slider "Reach", "gitd_liq_reach", 0, 512, 8, 1
+	Slider "Starts in from the seam", "gitd_liq_inset", 0, 256, 4, 1
+	Option "Falloff", "gitd_liq_falloff", "GITD_Falloff"
+	Slider "Intensity", "gitd_liq_intensity", 0, 3, 0.05, 2
+	StaticText ""
+	Option "Fades toward", "gitd_liq_far", "GITD_Far"
+	ColorPicker "Explicit fade colour", "gitd_liq_farcolor"
+}
+
+OptionMenu "GITDRandom"
+{
+	Title "Colour Randomiser"
+	Slider "Hue min", "gitd_hue_min", 0, 360, 5, 0
+	Slider "Hue max", "gitd_hue_max", 0, 360, 5, 0
+	StaticText ""
+	Slider "Saturation min", "gitd_sat_min", 0, 1, 0.02, 2
+	Slider "Saturation max", "gitd_sat_max", 0, 1, 0.02, 2
+	Slider "Value min", "gitd_val_min", 0, 1, 0.02, 2
+	Slider "Value max", "gitd_val_max", 0, 1, 0.02, 2
+	StaticText ""
+	Slider "Seed", "gitd_seed", 0, 9999, 1, 0
+	Option "All four lanes share one colour", "gitd_lock_planes", "OnOff"
+	Option "Light policy direction", "gitd_light_invert", "GITD_LightDir"
+}
+
+OptionMenu "GITDWave"
+{
+	Title "Wave"
+	Slider "Wavelength", "gitd_wave_len", 0, 800, 10, 0
+	Slider "Speed", "gitd_wave_speed", 0, 4, 0.05, 2
+	Slider "Sharpness", "gitd_wave_sharp", 0, 8, 0.1, 1
+	Option "Shape", "gitd_wave_shape", "GITD_WaveShape"
+	StaticText ""
+	Slider "  Reach", "gitd_wave_reach", 0, 1, 0.02, 2
+	Slider "  Brightness", "gitd_wave_bright", 0, 1, 0.02, 2
+	Slider "  Colour boundary", "gitd_wave_colour", 0, 1, 0.02, 2
+	Slider "  Detune", "gitd_wave_detune", 0, 1, 0.02, 2
+	Slider "  Seed", "gitd_wave_seed", 0, 64, 1, 0
+	StaticText ""
+	Slider "  Wall top", "gitd_wave_ph_wtop", 0, 1, 0.05, 2
+	Slider "  Wall bottom", "gitd_wave_ph_wbot", 0, 1, 0.05, 2
+	Slider "  Floor", "gitd_wave_ph_floor", 0, 1, 0.05, 2
+	Slider "  Ceiling", "gitd_wave_ph_ceil", 0, 1, 0.05, 2
+	StaticText ""
+	Option "Origin", "gitd_wave_origin", "GITD_Origin"
+}
+
+OptionMenu "GITDDetail"
+{
+	Title "Surface Detail"
+	Slider "  Amount", "gitd_tex_noise", 0, 1, 0.02, 2
+	Slider "  Grain fineness", "gitd_tex_scale", 0, 0.5, 0.005, 3
+	Slider "  Drift", "gitd_tex_drift", 0, 1, 0.02, 2
+	Slider "  Contrast", "gitd_tex_contrast", 0, 4, 0.05, 2
+	StaticText ""
+	Slider "  Amount", "gitd_flow", 0, 1, 0.02, 2
+	Slider "  Spacing (map units)", "gitd_flow_spacing", 0, 48, 0.5, 1
+	Slider "  Speed", "gitd_flow_speed", 0, 4, 0.05, 2
+	Slider "  Sharpness", "gitd_flow_sharp", 0, 6, 0.1, 1
+	StaticText ""
+	Slider "  Amount", "gitd_cell", 0, 1, 0.02, 2
+	Slider "  Cell size (map units)", "gitd_cell_scale", 0, 128, 0.5, 1
+	Slider "  Speed", "gitd_cell_speed", 0, 2, 0.01, 2
+	Slider "  Width", "gitd_cell_width", 0, 1, 0.02, 2
+	StaticText ""
+	Slider "  Pulse depth", "gitd_pulse", 0, 1, 0.02, 2
+	Slider "  Pulse level", "gitd_pulse_level", 0, 1, 0.02, 2
+	Slider "  Disturbance reach", "gitd_react", 0, 1, 0.02, 2
+}
+
+// ================= Fog =================
+OptionValue "RSF_Preset"
+{
+	0, "Off"
+	1, "Ground Mist"
+	2, "Swamp"
+	3, "Smoke"
+	4, "Toxic"
+	5, "Blizzard"
+	6, "Ember"
+	7, "Deep"
+	8, "Faint Haze"
+	9, "Light Mist"
+	10, "Heavy Mist"
+	11, "Murk"
+	12, "Pea Soup"
+	13, "Cellar (damp indoors)"
+	14, "Courtyard (weather outside)"
+	15, "Night Air (heavy outside)"
+	16, "Chimneys"
+	17, "Shelf"
+	18, "Chapel (thick indoors)"
+	19, "Gale"
+	20, "Whiteout (dense, bright)"
+	21, "Tar (dense, low, dark)"
+	22, "Sulphur (dense, toxic)"
+	23, "Bank (dense, duck under it)"
+	24, "Drowned (densest)"
+	25, "Knee deep (dense, watch it move)"
+}
+
+OptionMenu "RSFMain"
+{
+	Title "Fog"
+	Option "Enabled", "rsf_enabled", "OnOff"
+	Option "Preset", "rsf_preset", "RSF_Preset"
+	StaticText ""
+	Submenu "The Body", "RSFBody"
+	Submenu "Surface and Churn", "RSFSurface"
+	Submenu "Tendrils", "RSFTendrils"
+	Submenu "Colour", "RSFColor"
+	Submenu "Indoors and Outdoors", "RSFRooms"
+	Submenu "Events", "RSFEvents"
+}
+
+OptionMenu "RSFBody"
+{
+	Title "The Body"
+	Slider "How high it reaches", "rsf_top", 0.0, 1024.0, 8.0, 0
+	Slider "How thick", "rsf_density", 0.0, 3.0, 0.05, 2
+	Slider "How soft the top edge", "rsf_soft", 1.0, 160.0, 4.0, 0
+	StaticText ""
+	Slider "Lit by the flashlight", "rsf_scatter", 0.0, 3.0, 0.1, 1
+	Slider "Lit by rockets and lamps", "rsf_dynlights", 0, 8, 1, 0
+	StaticText "  A count, not a strength. Costs frames; 0 is off.", darkgray
+	StaticText ""
+	Slider "Follows the floor", "rsf_follow", 0.0, 1.0, 0.05, 2
+	StaticText ""
+	Slider "Bottom", "rsf_bottom", -1024.0, 256.0, 16.0, 0
+}
+
+OptionMenu "RSFSurface"
+{
+	Title "Surface and Churn"
+	Slider "Wave height", "rsf_surf_amp", 0.0, 64.0, 2.0, 0
+	Slider "Wavelength", "rsf_surf_len", 32.0, 768.0, 16.0, 0
+	Slider "Speed", "rsf_surf_speed", 0.0, 4.0, 0.1, 1
+	Slider "Cross swell", "rsf_surf_cross", 0.0, 1.0, 0.05, 2
+	StaticText ""
+	Slider "Churn scale", "rsf_noise_scale", 0.001, 0.05, 0.001, 3
+	Slider "Churn depth", "rsf_noise_depth", 0.0, 1.0, 0.05, 2
+	Slider "Drift east", "rsf_drift_x", -32.0, 32.0, 1.0, 0
+	Slider "Drift north", "rsf_drift_y", -32.0, 32.0, 1.0, 0
+}
+
+OptionMenu "RSFTendrils"
+{
+	Title "Tendrils"
+	Slider "Density", "rsf_tend_density", 0.0, 1.0, 0.05, 2
+	Slider "Spacing", "rsf_tend_spacing", 48.0, 512.0, 16.0, 0
+	Slider "Thickness", "rsf_tend_radius", 4.0, 96.0, 2.0, 0
+	Slider "Height", "rsf_tend_height", 16.0, 384.0, 8.0, 0
+	StaticText ""
+	Slider "Rise", "rsf_tend_rise", 0.0, 2.0, 0.05, 2
+	Slider "Spread", "rsf_tend_spread", 0.0, 1.0, 0.05, 2
+	Slider "Lean", "rsf_tend_lean", 0.0, 1.0, 0.05, 2
+	Slider "Taper", "rsf_tend_taper", 0.0, 1.0, 0.05, 2
+}
+
+OptionMenu "RSFColor"
+{
+	Title "Colour"
+	Slider "Red", "rsf_col_r", 0, 255, 5, 0
+	Slider "Green", "rsf_col_g", 0, 255, 5, 0
+	Slider "Blue", "rsf_col_b", 0, 255, 5, 0
+	StaticText ""
+	Slider "Mix", "rsf_grad_mix", 0.0, 1.0, 0.05, 2
+	Slider "Second red", "rsf_grad_r", 0, 255, 5, 0
+	Slider "Second green", "rsf_grad_g", 0, 255, 5, 0
+	Slider "Second blue", "rsf_grad_b", 0, 255, 5, 0
+	StaticText ""
+	Slider "Takes colour from the room", "rsf_pickup", 0.0, 1.0, 0.05, 2
+}
+
+OptionMenu "RSFRooms"
+{
+	Title "Indoors and Outdoors"
+	Slider "Indoors", "rsf_indoor", 0.0, 2.0, 0.05, 2
+	Slider "Outdoors", "rsf_outdoor", 0.0, 2.0, 0.05, 2
+}
+
+OptionMenu "RSFEvents"
+{
+	Title "Events"
+	Option "Your wake", "rsf_wake", "OnOff"
+	Slider "Wake size", "rsf_wake_radius", 0.0, 192.0, 8.0, 0
+	Slider "Wake strength", "rsf_wake_strength", 0.0, 1.0, 0.05, 2
+	Slider "Wake stretch", "rsf_wake_stretch", 0.0, 4.0, 0.1, 1
+	StaticText ""
+	Option "Monsters part it", "rsf_waders", "OnOff"
+	Slider "One every N tics", "rsf_wader_every", 1, 20, 1, 0
+	StaticText ""
+	Option "Deaths ripple", "rsf_death_ripple", "OnOff"
+	Slider "Ripple strength", "rsf_death_strength", 0.0, 1.0, 0.05, 2
+	Slider "Ripple speed", "rsf_death_speed", 0.0, 600.0, 20.0, 0
+	StaticText ""
+	Option "Explosions light it", "rsf_ignite", "OnOff"
+	Slider "Flash size", "rsf_ignite_radius", 32.0, 512.0, 16.0, 0
+	Slider "Flash strength", "rsf_ignite_strength", 0.0, 2.0, 0.1, 1
+	Slider "Flash red", "rsf_ignite_r", 0, 255, 5, 0
+	Slider "Flash green", "rsf_ignite_g", 0, 255, 5, 0
+	Slider "Flash blue", "rsf_ignite_b", 0, 255, 5, 0
+	StaticText ""
+	StaticText "WHEN A SWEEP PASSES", "white"
+	Slider "Pushed ahead of it", "rsf_bow", 0.0, 2.0, 0.05, 2
+	Slider "  across this width", "rsf_bow_width", 8.0, 256.0, 8.0, 0
+	Slider "  thin behind it", "rsf_bow_thin", 0.0, 1.0, 0.05, 2
+}
+
+// ================= Sweeps =================
+OptionValue "RSS_Preset"
+{
+	 0, "Off"
+	 1, "Tide"
+	 2, "Patrol"
+	 3, "Sonar"
+	 4, "Shockwave"
+	 5, "Corridor"
+	 6, "Rising"
+	 7, "Dragnet"
+	 8, "Cage"
+	 9, "Hologram"
+	10, "Interference"
+	11, "Bloodrush"
+	12, "Carnival"
+	13, "Wall of Light"
+	14, "Wall of Darkness"
+	15, "Wall of Colour"
+	16, "Wall of Fog"
+	17, "Sweep"
+	18, "Sweep"
+	19, "Purge"
+	20, "Curtain"
+	21, "Unison"
+	22, "Tide"
+	23, "Patrol"
+	24, "Corridor"
+	25, "Dragnet"
+	26, "Cage"
+	27, "Hologram"
+	28, "Interference"
+	29, "Bloodrush"
+	30, "Carnival"
+	31, "Wall of Light"
+	32, "Wall of Darkness"
+	33, "Wall of Colour"
+	34, "Wall of Fog"
+}
+
+OptionValue "RSS_Shape"
+{
+	1, "Rings (across the floor)"
+	2, "Bars, east and west"
+	3, "Bars, north and south"
+	4, "Shells (rise as they grow)"
+	5, "A plane, rising"
+	6, "SWEEP"
+	7, "SWEEP"
+	8, "SWEEP"
+	9, "SWEEP"
+}
+
+OptionValue "RSS_Draw"
+{
+	1, "Add"
+	2, "Lift"
+	3, "Crush"
+	4, "Recolour"
+}
+
+OptionValue "RSS_Origin"
+{
+	0, "Map origin"
+	1, "Follows you"
+	2, "Fixed point below"
+	3, "Map centre"
+}
+
+OptionValue "RSS_Timing"
+{
+	0, "Spread"
+	1, "Train"
+	2, "Once"
+}
+
+OptionValue "RSS_DrawShared"
+{
+	0, "Shared"
+	1, "Add"
+	2, "Lift"
+	3, "Crush"
+	4, "Recolour"
+}
+
+OptionValue "RSS_Fill"
+{
+	0, "None"
+	1, "Grid"
+	2, "Dots"
+	3, "Solid slab"
+}
+
+OptionValue "RSS_GradAxis"
+{
+	0, "Across"
+	1, "Up"
+}
+
+OptionMenu "RSSMain"
+{
+	Title "Sweeps"
+	Option "Enabled", "rss_enabled", "OnOff"
+	Option "Preset", "rss_preset", "RSS_Preset"
+	StaticText ""
+	Submenu "Sources", "RSSSources"
+	Submenu "The Band", "RSSBand"
+	Submenu "Each band", "RSSBands"
+	Submenu "Colour", "RSSColor"
+	Submenu "Lattice", "RSSFill"
+	Submenu "Effects", "RSSFx"
+	Submenu "Behind the line", "RSSAfter"
+}
+
+OptionMenu "RSSSources"
+{
+	Title "Sources"
+	StaticText "STANDING", "white"
+	Option "Enabled", "rss_ambient", "OnOff"
+	Slider "How many", "rss_ambient_count", 0, 8, 1, 0
+	Slider "Speed", "rss_ambient_speed", 0.0, 2.0, 0.01, 2
+	Slider "How far they travel", "rss_ambient_reach", 128, 4096, 32, 0
+	Option "Timing", "rss_ambient_timing", "RSS_Timing"
+	Slider "  Train speed, units a second", "rss_train_speed", 16, 1024, 8, 0
+	Slider "  Train gap, tics", "rss_train_gap", 0, 350, 5, 0
+	Option "Shape", "rss_ambient_shape", "RSS_Shape"
+	StaticText ""
+	Option "A SWEEP always crosses the map", "rss_cross_always", "OnOff"
+	StaticText ""
+	Option "Centred on", "rss_ambient_org", "RSS_Origin"
+	Slider "  Fixed east", "rss_ambient_x", -8192, 8192, 64, 0
+	Slider "  Fixed north", "rss_ambient_y", -8192, 8192, 64, 0
+	Slider "  Fixed height", "rss_ambient_z", -2048, 2048, 32, 0
+	StaticText ""
+	StaticText "PING", "white"
+	Option "Enabled", "rss_ping", "OnOff"
+	Slider "Seconds between", "rss_ping_every", 0.5, 15.0, 0.5, 1
+	Slider "Speed", "rss_ping_speed", 0.1, 3.0, 0.05, 2
+	Slider "Reach", "rss_ping_reach", 128, 4096, 32, 0
+	StaticText ""
+	StaticText "FIRED", "white"
+	Option "On a kill", "rss_ev_kill", "OnOff"
+	Option "  Bosses only", "rss_ev_bossonly", "OnOff"
+	Slider "  ...or anything this big", "rss_ev_boss_health", 0, 6000, 100, 0
+	Slider "  Only at tier or above", "rss_ev_tier_min", 0, 13, 1, 0
+	TextField "  Only this class", "rss_ev_class"
+	Option "On an explosion", "rss_ev_explode", "OnOff"
+	Option "When YOU are hurt", "rss_ev_hurt", "OnOff"
+	Slider "How many may hold at once", "rss_ev_slots", 0, 8, 1, 0
+	Slider "Life, seconds", "rss_ev_life", 0.1, 5.0, 0.1, 1
+	Slider "Reach", "rss_ev_reach", 128, 4096, 32, 0
+	Slider "Speed", "rss_ev_speed", 0.1, 4.0, 0.05, 2
+	Option "Shape", "rss_ev_shape", "RSS_Shape"
+}
+
+OptionMenu "RSSBand"
+{
+	Title "The Band"
+	Slider "Thickness", "rss_thickness", 1, 256, 1, 0
+	Slider "Softness", "rss_softness", 0.05, 3.0, 0.05, 2
+	Slider "Brightness", "rss_intensity", 0.0, 4.0, 0.05, 2
+	Option "Draw mode", "rss_draw", "RSS_Draw"
+	StaticText ""
+	Slider "Wake", "rss_trail", -512, 512, 4, 0
+	StaticText ""
+	Slider "Fade out over", "rss_fade", 0.0, 0.95, 0.05, 2
+}
+
+OptionMenu "RSSBands"
+{
+	Title "Each Band"
+	Option "Each band its own", "rss_perband", "OnOff"
+	StaticText ""
+	StaticText "BAND 1", "white"
+	ColorPicker "  Colour", "rss_band_col1"
+	Slider "  Thickness", "rss_band_thick1", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw1", "RSS_DrawShared"
+	StaticText "BAND 2", "white"
+	ColorPicker "  Colour", "rss_band_col2"
+	Slider "  Thickness", "rss_band_thick2", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw2", "RSS_DrawShared"
+	StaticText "BAND 3", "white"
+	ColorPicker "  Colour", "rss_band_col3"
+	Slider "  Thickness", "rss_band_thick3", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw3", "RSS_DrawShared"
+	StaticText "BAND 4", "white"
+	ColorPicker "  Colour", "rss_band_col4"
+	Slider "  Thickness", "rss_band_thick4", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw4", "RSS_DrawShared"
+	StaticText "BAND 5", "white"
+	ColorPicker "  Colour", "rss_band_col5"
+	Slider "  Thickness", "rss_band_thick5", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw5", "RSS_DrawShared"
+	StaticText "BAND 6", "white"
+	ColorPicker "  Colour", "rss_band_col6"
+	Slider "  Thickness", "rss_band_thick6", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw6", "RSS_DrawShared"
+	StaticText "BAND 7", "white"
+	ColorPicker "  Colour", "rss_band_col7"
+	Slider "  Thickness", "rss_band_thick7", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw7", "RSS_DrawShared"
+	StaticText "BAND 8", "white"
+	ColorPicker "  Colour", "rss_band_col8"
+	Slider "  Thickness", "rss_band_thick8", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw8", "RSS_DrawShared"
+}
+
+OptionMenu "RSSColor"
+{
+	Title "Colour"
+	Slider "Red", "rss_col_r", 0, 255, 5, 0
+	Slider "Green", "rss_col_g", 0, 255, 5, 0
+	Slider "Blue", "rss_col_b", 0, 255, 5, 0
+	StaticText ""
+	Slider "Mix", "rss_col_mix", 0.0, 1.0, 0.05, 2
+	Slider "Second red", "rss_col2_r", 0, 255, 5, 0
+	Slider "Second green", "rss_col2_g", 0, 255, 5, 0
+	Slider "Second blue", "rss_col2_b", 0, 255, 5, 0
+}
+
+OptionMenu "RSSFill"
+{
+	Title "Lattice"
+	Option "Pattern", "rss_fill", "RSS_Fill"
+	Slider "Spacing across", "rss_fill_u", 0, 256, 2, 0
+	Slider "Spacing up", "rss_fill_v", 0, 256, 2, 0
+	Slider "Line width", "rss_fill_width", 0.5, 24.0, 0.5, 1
+	Slider "Line softness", "rss_fill_soft", 0.1, 6.0, 0.1, 1
+	Slider "How lit between the lines", "rss_fill_gap", 0.0, 1.0, 0.05, 2
+	StaticText ""
+	Slider "IN THE AIR", "rss_fill_air", 0.0, 1.0, 0.05, 2
+	StaticText ""
+	Slider "Line red", "rss_fill_r", 0, 255, 5, 0
+	Slider "Line green", "rss_fill_g", 0, 255, 5, 0
+	Slider "Line blue", "rss_fill_b", 0, 255, 5, 0
+	StaticText ""
+	StaticText "HOW IT MOVES", "white"
+	Slider "Rotate", "rss_fill_rotate", -90.0, 90.0, 1.0, 0
+	Slider "Drift", "rss_fill_drift", -64.0, 64.0, 1.0, 0
+	Slider "Thicken every Nth line", "rss_fill_major", 0, 16, 1, 0
+	Slider "  by", "rss_fill_boost", 1.0, 6.0, 0.1, 1
+	Slider "Jitter", "rss_fill_jitter", 0.0, 1.0, 0.05, 2
+	Slider "Flicker", "rss_fill_flicker", 0.0, 1.0, 0.05, 2
+	Slider "Fade along the band", "rss_fill_grad", 0.0, 1.0, 0.05, 2
+	Option "  along", "rss_fill_grad_axis", "RSS_GradAxis"
+}
+
+OptionMenu "RSSFx"
+{
+	Title "Effects"
+	Option "Enabled", "rss_fx", "OnOff"
+	Option "Act on sectors", "rss_fx_sectors", "OnOff"
+	Option "Act on actors", "rss_fx_actors", "OnOff"
+	StaticText ""
+	StaticText "RETIER MONSTERS", "white"
+	Option "Enabled", "rss_fx_tier", "OnOff"
+	Option "Tier is the sweep's colour", "rss_fx_tier_bycolour", "OnOff"
+	Slider "  Steps", "rss_fx_tier_step", -4, 4, 1, 0
+	StaticText ""
+	StaticText "GLOW", "white"
+	Option "Enabled", "rss_fx_glow", "OnOff"
+	Slider "  Wall glow reach", "rss_fx_glow_wall", 0, 512, 8, 0
+	Slider "  Flat glow reach", "rss_fx_glow_flat", 0, 512, 8, 0
+	Option "Repaint (legacy)", "rss_fx_recolour", "OnOff"
+	Slider "  Reach", "rss_fx_recolour_reach", 0, 512, 8, 0
+	StaticText ""
+	StaticText "SECTOR LIGHT", "white"
+	Option "Enabled", "rss_fx_light", "OnOff"
+	Slider "  Step", "rss_fx_light_step", -128, 128, 4, 0
+	Slider "  Never below", "rss_fx_light_floor", 0, 255, 5, 0
+	Slider "  Never above", "rss_fx_light_ceil", 0, 255, 5, 0
+	StaticText ""
+	StaticText "FOG", "white"
+	Option "Ripple it", "rss_fx_fog", "OnOff"
+	Option "Colour it", "rss_fx_fogtint", "OnOff"
+	Slider "  Mix", "rss_fx_fogtint_mix", 0.0, 1.0, 0.05, 2
+	StaticText ""
+	StaticText "DARKNESS", "white"
+	Option "Enabled", "rss_fx_dark", "OnOff"
+	Slider "  Step", "rss_fx_dark_step", -32.0, 32.0, 1.0, 0
+	Slider "  Never below", "rss_fx_dark_min", 0, 255, 5, 0
+	Slider "  Never above", "rss_fx_dark_max", 0, 255, 5, 0
+	StaticText ""
+	StaticText "COLOUR DRAIN", "white"
+	Option "Enabled", "rss_fx_desat", "OnOff"
+	Slider "  Per sector crossed", "rss_fx_desat_step", -0.5, 0.5, 0.01, 2
+	Option "  Put it back after", "rss_fx_desat_reset", "OnOff"
+	StaticText ""
+	StaticText "DECORATIONS", "white"
+	Option "Outline what it passes", "rss_fx_decor", "OnOff"
+	Option "  Monsters too", "rss_fx_decor_monsters", "OnOff"
+	Slider "  Strength", "rss_fx_decor_strength", 0.0, 2.0, 0.05, 2
+	Slider "  Thickness", "rss_fx_decor_thickness", 0.2, 6.0, 0.1, 1
+	Slider "  Edge threshold", "rss_fx_decor_threshold", 0.0, 1.0, 0.02, 2
+	Slider "  Glow", "rss_fx_decor_glow", 0.0, 8.0, 0.1, 1
+	StaticText ""
+	StaticText "OTHER", "white"
+	Option "Wake what it passes", "rss_fx_rouse", "OnOff"
+}
+
+OptionMenu "RSSAfter"
+{
+	Title "Behind the Line"
+	Option "Enabled", "rss_after", "OnOff"
+	StaticText ""
+	StaticText "THE LOOK", "white"
+	Slider "Tint red", "rss_after_r", 0, 255, 5, 0
+	Slider "Tint green", "rss_after_g", 0, 255, 5, 0
+	Slider "Tint blue", "rss_after_b", 0, 255, 5, 0
+	Slider "Tint", "rss_after_mix", 0.0, 1.0, 0.05, 2
+	Slider "Darken", "rss_after_darken", 0.0, 1.0, 0.05, 2
+	Slider "Drain the colour", "rss_after_desat", 0.0, 1.0, 0.05, 2
+	Slider "Fade in over, units", "rss_after_soft", 0, 1024, 8, 0
+	StaticText ""
+	StaticText "HOW LONG IT LASTS", "white"
+}
+
+// ================= Bloom =================
+OptionValue "RSB_Preset"
+{
+	-1, "None"
+	0, "Off"
+	1, "Vanilla"
+	2, "Emissive"
+	3, "Subtle"
+	4, "Heavy"
+	5, "Anamorphic streaks"
+	6, "Cold grade"
+	7, "Furnace"
+	8, "70mm"
+	9, "Neon"
+	10, "Fog glow"
+	11, "VR clean"
+}
+
+OptionMenu "RSBMain"
+{
+	Class "RSR_BloomMenu"
+	Title "Bloom"
+	Option "Use these settings", "rsb_enabled", "OnOff"
+	StaticText ""
+	Option "Preset", "rsb_preset", "RSB_Preset"
+	Command "Re-apply preset", "rsb_preset_applied -1"
+	StaticText ""
+	Submenu "By hand", "RSBManual"
+	Submenu "Bloom that reacts", "RSBReactive"
+	StaticText ""
+	StaticText "LASERS", "white"
+	Option "Keep legacy lasers", "gl_bloom_pin_beams", "OnOff"
+	Command "Capture current bloom as the laser look", "gl_bloom_pin_capture"
+	Command "Laser look back to the engine defaults", "gl_bloom_pin_reset"
+}
+
+OptionMenu "RSBManual"
+{
+	Title "Bloom by hand"
+	Option "Bloom", "gl_bloom", "OnOff"
+	StaticText ""
+	Slider "Threshold", "gl_bloom_threshold", 0.05, 4.0, 0.01, 2
+	StaticText ""
+	Slider "Soft knee", "gl_bloom_knee", 0.0, 8.0, 0.05, 2
+	StaticText ""
+	Slider "Spread", "gl_bloom_amount", 0.1, 6.0, 0.05, 2
+	Slider "Blur step", "gl_bloom_step", 1, 8, 1, 0
+	StaticText ""
+	StaticText "LENS", "white"
+	Option "Anamorphic streaks", "gl_bloom_anamorphic", "OnOff"
+	Slider "  How sideways", "gl_bloom_anamorphic_ratio", 1.0, 16.0, 0.25, 2
+	StaticText ""
+	Slider "Chromatic fringing", "gl_bloom_chromatic", 0.0, 0.1, 0.002, 3
+	StaticText ""
+	StaticText "TINT", "white"
+	Slider "Red", "gl_bloom_tint_r", 0.0, 2.0, 0.02, 2
+	Slider "Green", "gl_bloom_tint_g", 0.0, 2.0, 0.02, 2
+	Slider "Blue", "gl_bloom_tint_b", 0.0, 2.0, 0.02, 2
+	StaticText ""
+	StaticText "EXPOSURE", "white"
+	Slider "Scale", "gl_exposure_scale", 0.05, 4.0, 0.05, 2
+	Slider "Minimum", "gl_exposure_min", 0.05, 2.0, 0.05, 2
+	Slider "Base", "gl_exposure_base", 0.05, 2.0, 0.05, 2
+	Slider "Adapt speed", "gl_exposure_speed", 0.0, 1.0, 0.01, 2
+}
+
+OptionMenu "RSBReactive"
+{
+	Title "Bloom that reacts"
+	Option "Bloom that reacts", "rsb_reactive", "OnOff"
+	StaticText ""
+	Slider "Strength", "gl_bloom_override_strength", 0.0, 1.0, 0.05, 2
+	StaticText ""
+	Option "Flash", "rsb_rx_flash", "OnOff"
+	Option "Breathe", "rsb_rx_breathe", "OnOff"
+	Option "Sweep tint", "rsb_rx_sweep", "OnOff"
+	Option "Hurt", "rsb_rx_hurt", "OnOff"
+	Option "Follow the dark", "rsb_rx_dark", "OnOff"
+}
+
+// ================= Flashlight =================
+OptionValue "RSFL_Mount"
+{
+	0, "On your head"
+	1, "Off hand"
+	2, "Weapon hand"
+}
+
+OptionMenu "RSFLMain"
+{
+	Title "Flashlight"
+	Option "Enabled", "rsfl_enabled", "OnOff"
+	Option "Mounted", "rsfl_mount", "RSFL_Mount"
+	StaticText ""
+	Slider "Lens forward", "rsfl_offset_fwd", -32.0, 32.0, 1.0, 0
+	Slider "Lens right", "rsfl_offset_side", -32.0, 32.0, 1.0, 0
+	Slider "Lens up", "rsfl_offset_z", -32.0, 32.0, 1.0, 0
+	StaticText ""
+	Submenu "The Beam", "RSFLBeam"
+	Submenu "Dust", "RSFLDust"
+	Submenu "Colour", "RSFLColor"
+}
+
+OptionMenu "RSFLBeam"
+{
+	Title "The Beam"
+	Slider "Hot core (degrees)", "rsfl_inner", 1.0, 60.0, 1.0, 0
+	Slider "Faded out by (degrees)", "rsfl_outer", 2.0, 80.0, 1.0, 0
+	Slider "Reach", "rsfl_length", 128.0, 4096.0, 64.0, 0
+	Slider "Brightness", "rsfl_density", 0.0, 2.0, 0.05, 2
+	StaticText ""
+	Slider "Falloff", "rsfl_falloff", 0.5, 4.0, 0.1, 1
+	StaticText ""
+	Slider "Lights what it hits", "rsfl_spot", 0.0, 2.0, 0.05, 2
+	Option "  Walls block it", "rsfl_spot_shadows", "OnOff"
+	StaticText ""
+	Slider "Flicker", "rsfl_flicker", 0.0, 0.5, 0.01, 2
+	StaticText ""
+	StaticText "HOW IT HANGS", "white"
+	StaticText "Zero for both is welded to your hand.", "darkgray"
+	Slider "Weight (trails your hand)", "rsfl_weight", 0.0, 0.5, 0.01, 2
+	Slider "Sway (hangs and swings)", "rsfl_sway", 0.0, 2.0, 0.05, 2
+	Slider "  Floppy to stiff", "rsfl_sway_damp", 0.0, 1.0, 0.05, 2
+	StaticText ""
+	StaticText "SEEN END-ON", "white"
+	Slider "Fade", "vol_beam_axisfade", 0.0, 1.0, 0.05, 2
+	Slider "  when it passes this close to your eye", "vol_beam_axisfade_reach", 0.0, 64.0, 1.0, 0
+}
+
+OptionMenu "RSFLDust"
+{
+	Title "Dust"
+	Slider "How much", "rsfl_dust", 0.0, 1.0, 0.05, 2
+	Slider "How fine", "rsfl_dust_scale", 0.005, 0.12, 0.005, 3
+	Slider "How fast it settles", "rsfl_dust_drift", 0.0, 40.0, 0.25, 2
+}
+
+OptionMenu "RSFLColor"
+{
+	Title "Colour"
+	Slider "Red", "rsfl_r", 0, 255, 5, 0
+	Slider "Green", "rsfl_g", 0, 255, 5, 0
+	Slider "Blue", "rsfl_b", 0, 255, 5, 0
+}

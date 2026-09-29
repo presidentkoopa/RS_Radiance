@@ -1,0 +1,1067 @@
+// RS_Radiance -- six effects, one mod.
+
+// ================= RS_Darkness =================
+// RS_Darkness -- CVars
+//
+// Darkness as a shader term rather than a per-sector rewrite.
+//
+// DarkDoomZ walks every sector and overwrites Sector.LightLevel, which means
+// it holds a backup array to undo itself, destroys Lighting thinkers rather
+// than fight them for the same field, and can only ever be uniform wall to
+// wall inside one sector. This drives Level.SetDarkness instead: same four
+// curves, same constants, evaluated against each fragment's own light. It
+// writes nothing to the map, so there is nothing to undo and nothing to fight.
+
+// ---------------------------------------------------------------- master --
+server bool  rsd_enabled   = true;
+server int   rsd_preset    = 4;          // Horizon -- distance, the thing a sector cannot do.
+                                         // Must match RSD_Presets.DEFAULT.
+
+// ----------------------------------------------------------------- curve --
+// 0 off, 1 subtract, 2 compress, 3 cap brightest, 4 deepen shadows.
+// Transcribed from DarkDoomZ, which took them from the original DarkDoom.
+server int   rsd_mode      = 1;
+
+// How hard, in Doom's 0-255 light units. 96/128/256 are Lite/Classic/Black.
+server float rsd_adjust    = 128.0;
+
+// Internal. What RS_Sweeps' darkness effect adds on top of rsd_adjust while a
+// sweep is acting, in the same light units; 0 when no sweep is acting. The
+// push adds it to the Amount and clamps the sum to 0-256.
+// NOSAVE, NOT SERVER. RS_Sweeps used to move rsd_adjust itself: one server
+// write per crossed sector per tic, each queued to the network, all reading
+// the same not-yet-updated value, and the last one saved to the ini as the
+// player's own Amount. This is local, immediate, and never the player's
+// setting. It still persists in the ini like any nosave cvar, so the handler
+// resets it to 0 whenever a map starts or a save is loaded.
+nosave float rsd_sweep_offset = 0.0;
+
+// A floor under the result. MUST be 0 for the Dark preset to reach true
+// black -- any value here is light that survives everything.
+server float rsd_minlight  = 0.0;
+
+// Lifts before the curve / after it.
+server float rsd_pregain   = 0.0;
+server float rsd_postgain  = 0.0;
+
+// ------------------------------------------------------------- distance --
+// Darkness deepening with range from the eye. A sector cannot express this at
+// all -- it is the term that makes a dark room read as having depth rather
+// than as the brightness slider having gone down.
+// depth 0 = off, 1 = fully black at range.
+server float rsd_dist        = 0.0;
+server float rsd_dist_range  = 1024.0;   // map units to reach full depth
+
+// --------------------------------------------------------------- height --
+// Dark pooling below a reference height, or rising as a tide. Above the
+// reference nothing changes.
+server float rsd_height       = 0.0;
+server float rsd_height_range = 256.0;   // units past ref to reach full depth
+
+// Which side of the reference the dark pools on: 0 below, 1 above.
+//
+// Below is a cellar and is what this has always done. Above is a ceiling that swallows the
+// light while the floor still burns, which is what Hellscape is built on and what the height
+// term could not express at all until the engine learned the direction.
+server int   rsd_height_dir   = 0;
+
+// 0 fixed at rsd_height_z, 1 follows the player's feet.
+server int   rsd_height_mode  = 0;
+server float rsd_height_z     = 0.0;
+
+// WHERE THE REFERENCE SITS RELATIVE TO YOU, in follow mode.
+//
+// The shader darkens only BELOW the reference. Following your feet therefore
+// does almost nothing on flat ground -- the floor is at your feet, so it is
+// not below them -- and the pool could only ever appear in geometry you were
+// standing above. Undertow advertised wading to waist height and could not
+// produce it.
+//
+// Offsetting the reference upward puts the top of the pool where the preset
+// actually wants it: about 48 for waist, 64 for over your head. Negative
+// values push it below you, so only what you climb down into goes dark.
+server float rsd_height_offset = 0.0;
+
+// The reference the shader actually gets is not a cvar. The push reads these
+// three every tic and from UiTick, so the sliders move it while the menu is
+// open. In follow mode the push hands the offset to the engine
+// (Level.SetDarknessHeightFollow) and the renderer adds it to the camera's
+// interpolated Z each frame, so the pool edge rides lifts and stairs smoothly
+// and stays per-client: it is where YOUR view is, never the host.
+
+// Internal. The preset index last applied, so a preset only re-applies when
+// it CHANGES -- not on every map load, which used to wipe slider tweaks.
+// NOSAVE, NOT SERVER. RS_GlowInTheDark's cvarinfo documents this failure at
+// length: a server cvar is not written locally when you set it, so a latch
+// read back on the next tic still reads its old value and the whole preset
+// re-applies -- more cvar writes, which delays the round trip further, which
+// causes more passes. GlowInTheDark compounded it until the tic's net buffer
+// overflowed. This mod writes 12 to 19 cvars per apply rather than fifty-four
+// so it has not hit that cliff, but it is the same defect.
+//
+// A savegame restores the server cvars but not this, so the handler keeps a
+// copy with the save and puts the latch back to match on load.
+nosave int   rsd_preset_applied = -1;
+
+// HOW MUCH OF THE DARKNESS ACTORS ARE SPARED, 0 to 1.
+//
+// The darkening applies to the whole scene, which takes the monsters with it.
+// At 0 a room dark enough to make the glow worth having is a room where a
+// thing walking towards you simply is not there. 1 leaves actors at full
+// brightness, which reads as cut out and pasted on.
+//
+// 0.4 keeps them readable as shapes without lifting them out of the room.
+server float rsd_actor_spare = 0.4;
+
+// ================= RS_GlowInTheDark =================
+// GlowInTheDark 2.0 -- CVars
+//
+// Archived (no "noarchive"), unlike 1.1, so your settings survive a restart.
+//
+// Four lanes:
+//   wf  wall above the floor seam      Sector.SetGlowColor(Sector.floor)
+//   wc  wall below the ceiling seam    Sector.SetGlowColor(Sector.ceiling)
+//   fg  the floor's own face           Sector.SetFlatGlowColor(Sector.floor)
+//   cg  the ceiling's own face         Sector.SetFlatGlowColor(Sector.ceiling)
+//
+// Reach means different axes per system and this is easy to trip over:
+// *_reach on wf/wc is VERTICAL along the wall; on fg/cg it is HORIZONTAL,
+// inward from the nearest edge. Same name in the engine too (GlowHeight vs
+// FlatGlowHeight) -- see Sector.SetGlowHeight and Sector.SetFlatGlowHeight in
+// mapdata.zs.
+
+// ---------------------------------------------------------------- master --
+server bool  gitd_enabled      = true;
+server int   gitd_preset       = 1;
+
+// SURFACE TEXTURE, CHOSEN SEPARATELY FROM THE PRESET.
+//
+// The grain, the scanlines and the cracks used to belong to whichever preset
+// included them, which made the best-looking part of the effect the hardest to
+// reach -- the tight traces existed only inside Circuitry and the crazed
+// cracks only inside Spore.
+//
+// 0 leaves whatever the preset chose, which is exactly the old behaviour and
+// is the default. Anything else lands on top of whatever palette is underneath.
+server int   gitd_texture      = 0;
+server bool  gitd_shuffle      = false;
+server int   gitd_ondeath      = 0;       // 0 off, 1 new colours, 2 new preset
+
+// Seamless corners. The wall lane and the flat lane meeting at a corner agree
+// on one colour at the line they share, and a lane on an auto far colour ramps
+// away to its own -- so the join becomes a continuous ramp instead of a
+// visible edge. This is exactly what GlowColorFar exists for -- see
+// Sector.SetGlowColorFar in wadsrc/static/zscript/mapdata.zs. On by default;
+// an explicitly picked far colour on a lane still overrides it.
+server bool  gitd_seamless     = true;
+// Seamless corners WHILE A WAVE RUNS (owner 2026-09-18: the wall and ceiling
+// join is not seamless). Seamless corners switch themselves off whenever a
+// glow wave is live, because a wave moves each surface's reach independently
+// and the join it had just closed reopens -- and eight of the presets run
+// waves, so the owner meets the seam on most of them.
+//
+// On, the corner colour agreement is kept under a wave AND the flat lane takes
+// its wall neighbour's phase (the ceiling face takes the wall-from-ceiling
+// phase, the floor face takes the wall-from-floor one), so the two sides of a
+// join beat together instead of half a cycle apart.
+//
+// ON by default as of 2026-09-20. It shipped off because the engine seeded a
+// wall's wave from the plane height and a flat's from its first linedef, so the
+// two sides of a join could not match even with the colour agreed -- this row
+// could only remove the hue step. Engine 406a1ab05f gives all four lanes ONE
+// per-sector seed, so the join now closes properly and there is no longer a
+// reason to leave the seam open by default.
+//
+// The cost, stated plainly: it overrides a preset's own phase offsets, so a
+// preset that deliberately climbs the room (Reactor, Signal) stops climbing.
+// Switch it off to get that back.
+//
+// It closes the join completely as of engine 406a1ab05f (2026-09-18): all four
+// lanes now hash ONE per-sector number, so the wave's brightness and the glow
+// grain match across a corner instead of differing by the seed. Before that
+// this row could only remove the hue step.
+server bool  gitd_seamless_wave = true;
+
+// EMERGENCY LIGHTING, for RS_Ballistics' shot-out lights. Once this share of
+// a room's light fixtures is destroyed, that room's lanes lean to the
+// emergency colour and come up in intensity.
+//
+// On by default, and inert without RS_Ballistics: nothing reports a dead
+// fixture, so no room ever reaches the threshold.
+//
+// 0.75 rather than 1.0 so one lamp left alive in an awkward corner does not
+// hold the whole room back from reacting.
+server bool  gitd_emergency       = true;
+server float gitd_emergency_share = 0.75;
+server float gitd_emergency_gain  = 1.35;
+server color gitd_emergency_color = "C81E14";
+
+// FIRE LIGHT, for RS_Ballistics' flamethrower. A room that is burning lifts
+// its own glow warm and bright, and falls back as the fire dies -- their
+// flamethrower lights a room while you pour, but burning floor holds no light
+// of its own, so a corridor used to go dark behind you with fire still on it.
+//
+// The FALL is theirs (rsb_firelight_linger): this follows their share rather
+// than running a fade of its own.
+//
+// Inert without RS_Ballistics, and presentation only -- no sector light is
+// written by either side, and their fire is client-side anyway.
+server bool  gitd_firelight       = true;
+server float gitd_firelight_mix   = 0.7;
+server float gitd_firelight_gain  = 1.8;
+server color gitd_firelight_color = "FF7A1E";
+// Seamless corners, shape too. Off by default: the floor and ceiling faces
+// take the wall lane's reach, falloff and intensity at a corner as well as its
+// colour, so the two ramps match in width and curve. On, the Floor Face and
+// Ceiling Face shape sliders stop doing anything wherever a wall lane meets
+// them -- which is why it is not the default any more.
+server bool  gitd_seamless_shape = false;
+
+// Seamless WALLS. Corners fix the join inside one sector; this fixes the join
+// BETWEEN sectors -- the hard vertical line down a wall where a red room meets
+// a blue one, and the hard edge across a floor where two sectors of the same
+// room carry different colours. A Doom room is nearly always several sectors,
+// so without this every step, ledge and doorway is a colour break.
+// Blend 0 = each sector keeps its own colour; 1 = a sector takes its
+// neighbours' average outright.
+server bool  gitd_seamless_walls = true;
+server float gitd_wall_blend      = 0.5;
+
+
+// ---------------------------------------------------------------- inset --
+// HOW FAR IN FROM THE SEAM A LANE STARTS. Engine bb9bd1ba56, asked for by the
+// owner on 2026-09-20: "bio has a harsh cut where it hits the seams. can we
+// have it fade OUT before it hits the seams, like other ones fade IN from
+// them?"
+//
+// Every glow in this family is brightest AT the plane and fades away from it,
+// so a preset that lights the flats and not the walls puts a surface at full
+// brightness hard against an unlit one and the join is a cut. An inset makes
+// the lane climb from dark at the seam to full over this distance, and only
+// then start its falloff -- a floor that glows in its middle and lets the
+// corners go dark.
+//
+// Map units, the same quantity as the reach, and the shader clamps it to the
+// reach so a lane cannot be inverted by overshooting. 0 is exactly the old
+// curve, which is why every preset that does not ask for one is unchanged.
+server float gitd_wf_inset     = 0.0;
+server float gitd_wc_inset     = 0.0;
+server float gitd_fg_inset     = 0.0;
+server float gitd_cg_inset     = 0.0;
+server float gitd_liq_inset    = 0.0;
+
+// ------------------------------------------------------------ randomiser --
+// Governs every policy, not just the random one: fixed colour aside, all
+// colour sources land in HSV and get clamped into these windows.
+server int   gitd_seed         = 1337;
+server float gitd_hue_min      = 0.0;
+server float gitd_hue_max      = 360.0;
+server float gitd_sat_min      = 0.35;
+server float gitd_sat_max      = 0.85;
+server float gitd_val_min      = 0.45;
+server float gitd_val_max      = 1.0;
+server bool  gitd_lock_planes  = false;   // floor and ceiling share a colour
+server bool  gitd_light_invert = true;    // light policy: dark rooms glow more
+
+// ------------------------------------------------- lane: wall from floor --
+// policy: 0 fixed, 1 random per sector, 2 texture hash, 3 light level
+// falloff: 0 linear, 1 quadratic, 2 sqrt, 3 exponential
+// far:     0 off, 1 auto-derived, 2 explicit
+server bool  gitd_wf_on        = true;
+server int   gitd_wf_policy    = 1;
+server color gitd_wf_color     = "808080";
+server float gitd_wf_reach     = 64.0;
+server int   gitd_wf_falloff   = 0;
+server float gitd_wf_intensity = 1.0;
+server int   gitd_wf_far       = 1;
+server color gitd_wf_farcolor  = "000000";
+
+// ----------------------------------------------- lane: wall from ceiling --
+server bool  gitd_wc_on        = true;
+server int   gitd_wc_policy    = 1;
+server color gitd_wc_color     = "808080";
+server float gitd_wc_reach     = 64.0;
+server int   gitd_wc_falloff   = 0;
+server float gitd_wc_intensity = 1.0;
+server int   gitd_wc_far       = 1;
+server color gitd_wc_farcolor  = "000000";
+
+// -------------------------------------------------- lane: floor own face --
+server bool  gitd_fg_on        = true;
+server int   gitd_fg_policy    = 1;
+server color gitd_fg_color     = "808080";
+server float gitd_fg_reach     = 96.0;
+server int   gitd_fg_falloff   = 0;
+server float gitd_fg_intensity = 1.0;
+server int   gitd_fg_far       = 1;
+server color gitd_fg_farcolor  = "000000";
+
+// ------------------------------------------------ lane: ceiling own face --
+server bool  gitd_cg_on        = true;
+server int   gitd_cg_policy    = 1;
+server color gitd_cg_color     = "808080";
+server float gitd_cg_reach     = 96.0;
+server int   gitd_cg_falloff   = 0;
+server float gitd_cg_intensity = 1.0;
+server int   gitd_cg_far       = 1;
+server color gitd_cg_farcolor  = "000000";
+
+// --------------------------------------------------------------- liquids --
+// Sectors whose floor is a liquid override the fg lane. TerrainDef.IsLiquid
+// decides first; the stock Doom liquid flats (NUKAGE, FWATER, SWATER, LAVA,
+// BLOOD, SLIME01-12, RROCK05-08) are matched by name after it, because the
+// engine's terrain.txt has no Doom floors at all. This is the
+// replacement for 1.1's gldefs.bm, and it does what GLDEFS could not: lights
+// the liquid's own surface rather than only the wall beside it.
+server bool  gitd_liq_on        = true;
+server int   gitd_liq_policy    = 0;
+server color gitd_liq_color     = "40ff40";
+server float gitd_liq_reach     = 160.0;
+server int   gitd_liq_falloff   = 2;
+server float gitd_liq_intensity = 1.4;
+server int   gitd_liq_far        = 1;
+server color gitd_liq_farcolor   = "000000";
+server bool  gitd_liq_walls     = true;   // also push it up the wall (wf lane)
+
+// ------------------------------------------------------------------ wave --
+// Per-pixel peaks and valleys along a glow. Wavelength 0 = off.
+server float gitd_wave_len       = 0.0;
+// ONE DIAL OVER ALL THE MOTION. Every animated part of the glow -- the wave
+// travelling along a lane, the flow crawling down it, the cells blinking --
+// has its own speed, and a preset sets all three to suit its own look. This
+// scales whatever the preset chose, so "I like this preset but it is too
+// busy" is one slider rather than three, and the preset's balance between the
+// three is preserved instead of being flattened.
+//
+// 1.0 is the preset exactly as authored.
+server float gitd_speed          = 1.0;
+
+server float gitd_wave_speed     = 1.0;
+server float gitd_wave_sharp     = 1.0;
+server int   gitd_wave_shape     = 1;
+server float gitd_wave_reach     = 0.0;
+server float gitd_wave_bright    = 0.0;
+server float gitd_wave_colour    = 0.0;
+server float gitd_wave_detune    = 0.0;
+server float gitd_wave_seed      = 0.0;
+server float gitd_wave_ph_wtop   = 0.0;
+server float gitd_wave_ph_wbot   = 0.0;
+server float gitd_wave_ph_floor  = 0.0;
+server float gitd_wave_ph_ceil   = 0.0;
+server int   gitd_wave_origin    = 0;     // 0 static at map centre, 1 follows you (see PushWaveOrigin)
+
+// -------------------------------------------------------- surface detail --
+// Texture INSIDE the lit area. None of these move a glow's shape.
+server float gitd_tex_noise     = 0.0;
+server float gitd_tex_scale     = 0.06;
+server float gitd_tex_drift     = 0.0;
+server float gitd_tex_contrast  = 1.0;
+
+server float gitd_flow          = 0.0;
+server float gitd_flow_spacing  = 1.0;
+server float gitd_flow_speed    = 1.0;
+server float gitd_flow_sharp    = 1.0;
+
+server float gitd_cell          = 0.0;
+server float gitd_cell_scale    = 1.0;
+server float gitd_cell_speed    = 1.0;
+server float gitd_cell_width    = 0.5;
+
+// react is a strength dial on the engine's fog-disturbance array, which this
+// mod does not populate -- it will do nothing on its own. pulse/level are the
+// self-contained "room's own alarm" and are what the throbbing presets use.
+// See SetGlowReact in vmthunks.cpp and mGlowTex4 in hw_viewpointuniforms.h.
+server float gitd_react         = 0.0;
+server float gitd_pulse         = 0.0;
+server float gitd_pulse_level   = 0.0;
+// HOW FAST IT BEATS, separately from how hard. The engine derives the throb
+// rate from the LEVEL, so asking for a bright alarm used to force a fast one
+// -- RedAlert beat about twice a second at nearly full depth, which is a
+// strobe rather than a pulse. 1.0 is the old rate.
+server float gitd_pulse_rate    = 1.0;
+
+// Internal. The preset index last applied, so a preset only re-applies when
+// it CHANGES -- not on every map load, which used to wipe slider tweaks.
+//
+// NOSAVE, NOT SERVER, and the distinction is load-bearing. A server cvar is
+// not written locally when you set it: the write is queued to the network and
+// the value only appears after it round-trips through tic processing. This is
+// read back one tic later by SyncPreset as an "already applied" flag, so as a
+// server cvar it still reads -1 on the next tic and the whole preset re-applies
+// -- eighty to a hundred and ten more cvar writes, which delays the round trip
+// further, which causes more passes. It compounded until the tic's net buffer
+// overflowed and the game died with "Attempted to write past end of stream".
+//
+// nosave (CVAR_CONFIG_ONLY) keeps the one property this actually needs -- it
+// survives the handler being rebuilt per map -- while writing immediately and
+// never touching the wire. Nothing else should ever see this value.
+//
+// Because it is not in the savegame, WorldLoaded re-latches both of these from
+// the restored gitd_preset and gitd_texture when a save loads.
+nosave int   gitd_preset_applied = -1;
+// Same reasoning as gitd_preset_applied above -- nosave, not server.
+nosave int   gitd_texture_applied = -2;
+
+// ================= RS_Fog =================
+// RS_Fog -- CVars
+//
+// A body of mist with a real world-space ceiling: stand knee deep in it and
+// look down at its surface. Analytic, not raymarched, which is why it is
+// affordable at 90Hz per eye.
+//
+// The engine had every one of these knobs and no way to reach them -- no
+// on/off, no menu, and nothing connecting the fog to anything happening in the
+// game. This is that.
+
+// ---------------------------------------------------------------- master --
+server bool  rsf_enabled     = true;
+server int   rsf_preset      = 1;
+
+// Internal: the preset last applied, so a preset only re-applies when it
+// CHANGES rather than on every map load, which would wipe slider tweaks.
+//
+// NOSAVE, NOT SERVER, and the distinction is load-bearing. A server cvar is not
+// written locally when you set it: the write is queued to the network and only
+// lands once that tic's commands run. WorldTick and then UiTick both read the
+// latch before it lands, so each re-applied the whole preset -- about sixty
+// server writes, again every tic until the first one arrived. That is the
+// pattern that overflowed the net buffer ("Attempted to write past end of
+// stream") in RS_GlowInTheDark. Same fix as RS_Sweeps, RS_Darkness and GitD.
+nosave int   rsf_preset_applied = -1;
+
+// Internal: whether the standing fog was pushed while enabled, so switching the
+// mod off clears the slab ONCE instead of every tic. Clearing every tic erased
+// anyone else's slab for as long as the fog stayed off.
+nosave int   rsf_standing_pushed = 0;
+
+// ------------------------------------------------------------------ body --
+server float rsf_top         = 56.0;    // how high the mist reaches
+server float rsf_density     = 0.45;    // 0 = off
+server float rsf_soft        = 28.0;    // how soft the top edge is
+server float rsf_scatter     = 1.0;     // how much the flashlight lights it
+
+// How many dynamic lights light the mist: rockets, plasma, explosions, lamps. 0 is off and
+// is how it has always been -- the fog took light from the flashlight and from short-lived
+// disturbances and from nothing else, so a projectile flew down a black corridor lighting
+// the walls and leaving the mist it was inside dark.
+//
+// IT COSTS. The fog reads every one of these per pixel of mist, so this is a count and not a
+// strength: 4 is cheap, 8 is the cap. Turn it down before turning other things off if the
+// frame time suffers.
+server int   rsf_dynlights   = 0;
+
+// Which reference the edges follow. 0 = a fixed world height. Above 0, the top
+// and bottom are heights ABOVE THE FLOOR YOU STAND ON, so the depth underfoot
+// is the same on any floor. The number is how closely the fog tracks OTHER
+// floors: at 1 every step shows, at 0.35 a step ten units up raises the fog
+// three, so a staircase reads as a slope rather than a flight of steps.
+server float rsf_follow      = 0.35;
+
+// The layer's bottom, measured the same way as the top. Far below 0 is fog all
+// the way down; above 0 lifts it into a floating band.
+server float rsf_bottom      = -256.0;
+// A stacked, rolling bottom. No menu row; presets reset both to 0.
+server float rsf_bottom_period = 0.0;
+server float rsf_bottom_roll = 0.0;
+
+// --------------------------------------------------------------- surface --
+// A flat top reads as a sheet the moment you can see it clearly. Two waves at
+// an angle interfere, and interference is what stops it looking like machinery.
+server float rsf_surf_amp    = 8.0;
+server float rsf_surf_len    = 288.0;
+server float rsf_surf_speed  = 0.7;
+server float rsf_surf_cross  = 0.6;
+
+// ----------------------------------------------------------------- churn --
+server float rsf_noise_scale = 0.010;
+server float rsf_noise_depth = 0.40;
+server float rsf_drift_x     = 2.5;
+server float rsf_drift_y     = 1.2;
+
+// -------------------------------------------------------------- tendrils --
+// Wisps standing up out of the surface. Density 0 = none.
+server float rsf_tend_density = 0.0;
+server float rsf_tend_spacing = 160.0;
+server float rsf_tend_radius  = 22.0;
+server float rsf_tend_height  = 96.0;
+server float rsf_tend_rise    = 0.5;
+server float rsf_tend_spread  = 0.4;
+server float rsf_tend_lean    = 0.2;
+server float rsf_tend_taper   = 0.7;
+
+// ---------------------------------------------------------------- colour --
+server int   rsf_col_r       = 168;
+server int   rsf_col_g       = 176;
+server int   rsf_col_b       = 190;
+
+// A second colour mixed through it, for mist that is not one flat tone.
+server int   rsf_grad_r      = 90;
+server int   rsf_grad_g      = 110;
+server int   rsf_grad_b      = 92;
+server float rsf_grad_mix    = 0.0;
+
+// How much colour the mist takes from the room's own glow. Turn it up and the
+// fog goes whatever colour the lighting is.
+server float rsf_pickup      = 0.55;
+
+// A TRANSIENT TINT another mod lays over the second colour -- RS_Sweeps' fog
+// tint effect, while a sweep band is washing over the mist. Mix 0 means no
+// override and the gradient above is used as normal.
+//
+// It exists because two callers shared one engine gradient: RS_Sweeps set it
+// from WorldTick and this mod's UiTick push put rsf_grad straight back before
+// a frame was drawn, so the sweep's colour never showed. Now the writer sets
+// these and this mod pushes them in place of its own.
+//
+// NOSAVE: local, immediate, never on the wire. Zeroed when a map loads or
+// unloads, because a nosave value persists in the ini and a tint left behind
+// by a sweep that never finished would otherwise stick.
+nosave int   rsf_tint_r      = 0;
+nosave int   rsf_tint_g      = 0;
+nosave int   rsf_tint_b      = 0;
+nosave float rsf_tint_mix    = 0.0;
+
+// ------------------------------------------------------------------ wake --
+// One lagging point that thins the mist where you just walked. Its size,
+// strength and stretch are pushed with the standing fog, so they move while the
+// menu is open; only its position comes from the playsim.
+server bool  rsf_wake        = true;
+server float rsf_wake_radius = 56.0;
+server float rsf_wake_strength = 0.8;
+server float rsf_wake_stretch = 1.6;
+
+// ---------------------------------------------------------------- waders --
+// Monsters shouldering the mist aside as they move.
+//
+// THROTTLED HARD on purpose. There are 32 disturbance slots, recycled oldest
+// first, so thirty monsters each pushing one every tic means every slot is a
+// tenth of a second old and nothing lives long enough to read as a wake. One
+// pick per window: the nearest moving monster that did not go last time.
+server bool  rsf_waders      = true;
+server int   rsf_wader_every = 6;       // tics between picks
+server float rsf_wader_range = 1024.0;  // how far out to bother looking
+
+// ---------------------------------------------------------------- events --
+// A ring travelling outward from something that just died.
+server bool  rsf_death_ripple = true;
+server float rsf_death_strength = 0.8;
+server float rsf_death_speed  = 220.0;
+server float rsf_death_life   = 0.9;
+
+// An explosion LIGHTS the mist rather than clearing it. This is the one
+// disturbance mode that adds light and no density, so it shows even where there
+// is no mist -- the Off preset included. Switching the mod off stops it.
+server bool  rsf_ignite      = true;
+server int   rsf_ignite_min  = 20;      // minimum radius damage to count
+server float rsf_ignite_radius = 192.0;
+server float rsf_ignite_strength = 1.0;
+server float rsf_ignite_speed = 320.0;
+server float rsf_ignite_life = 0.5;
+// The flash's own colour. It used to be the second fog colour, which most
+// presets leave black, so explosions added black light and nothing showed.
+server int   rsf_ignite_r    = 255;
+server int   rsf_ignite_g    = 150;
+server int   rsf_ignite_b    = 70;
+
+// A sweep band (RS_Sweeps) pushing the mist ahead of its front and leaving it
+// thin behind. 0 lets sweeps pass through the fog without touching it.
+server float rsf_bow         = 0.0;
+server float rsf_bow_width   = 48.0;
+server float rsf_bow_thin    = 0.6;
+
+server float rsf_indoor  = 1.0;
+server float rsf_outdoor = 1.0;
+
+// ================= RS_Sweeps =================
+// RS_Sweeps -- CVars
+//
+// Bands of light travelling through the world, tested per pixel against world
+// position on every surface -- so one band wraps across floor, wall and ceiling
+// as a single unbroken line. Nothing per-sector can do that: a sector's glow is
+// uniform across that sector, this is per-pixel in world space.
+//
+// The engine has carried this for a long time with one caller: the weapon
+// wheel, using one band out of eight as an expanding ring. Bands 1-7, the
+// trail, the per-band shapes, the draw modes and the whole lattice had never
+// been driven by anything.
+
+server bool  rss_enabled       = true;
+server int   rss_preset        = 1;
+
+// A SWEEP shape (6-9) always crosses the whole map, whatever "Centred on"
+// says. Owner 2026-09-18: "evertyhing crosses the map, nothing originates from
+// player" -- and a sweep starting at your feet while the menu also offered a
+// crossing shape was the contradiction they were seeing.
+//
+// Off restores the old reading, where Follows you starts the front where you
+// stand and sends it outward. Rings, bars and shells are not affected either
+// way: they have no edge to leave from, so they always use Centred on.
+server bool  rss_cross_always  = true;
+
+// Internal. The preset last applied, so a preset only re-applies when it
+// CHANGES rather than on every map load, which would wipe slider tweaks.
+//
+// NOSAVE, NOT SERVER, and the distinction is load-bearing -- see the same note
+// in RS_GlowInTheDark and RS_Darkness. A server cvar is not written locally
+// when you set it; the write is queued to the network and only lands after it
+// round-trips, so a latch read back on the next tic still reads its old value
+// and the whole preset re-applies. That compounds until the tic's net buffer
+// overflows.
+nosave int   rss_preset_applied = -1;
+
+// ------------------------------------------------------------- what fires --
+//
+// Three independent sources, because they are three different feelings and
+// nothing says you want only one. Ambient is the room having weather. Events
+// are the world answering you. Ping is equipment you are carrying.
+//
+// They share the eight band slots: ambient takes the low slots, events claim
+// from the top down, and the ping takes one. Running all three at once with a
+// high ambient count will starve the events -- the menu says so.
+
+server bool  rss_ambient       = true;
+server int   rss_ambient_count = 2;
+server float rss_ambient_speed = 0.35;   // cycles per second
+server float rss_ambient_reach = 900.0;  // how far a band travels; the sweeps take the map's own
+server int   rss_ambient_shape = 1;      // 1 ring, 2 bars along X, 3 bars along Y, 4 shell, 5 rising plane, 6-9 sweep toward +X +Y -X -Y
+server int   rss_ambient_org   = 1;      // 0 map origin, 1 follows you, 2 fixed below, 3 map centre
+
+server float rss_ambient_x     = 0.0;
+server float rss_ambient_y     = 0.0;
+server float rss_ambient_z     = 0.0;
+
+// HOW THE STANDING BANDS ARE SPACED.
+//
+// 0 SPREAD: the bands share one cycle and sit evenly round it, so there is
+// always one somewhere between you and the reach. rss_ambient_speed is in
+// cycles a second.
+//
+// 1 TRAIN: one clock in map units a second, and each band leaves a fixed number
+// of tics after the one before. The cycle restarts only once the LAST band has
+// covered the reach, so no band vanishes mid-room because its leader ran out of
+// travel. This is GlowInTheDark's sweep timing, carried over whole so that its
+// Neon Unison band could come with it.
+//
+// 2 ONCE: one pass, then nothing until it is sent again -- by a new map, or by
+// the rss_sweep network event (bound as rss_sweep_now in KEYCONF). A pass
+// takes 1/speed seconds and the bands leave the same fraction apart Spread
+// uses. The only standing timing that runs the Effects: a looping band would
+// re-apply them every cycle.
+server int   rss_ambient_timing = 0;
+server float rss_train_speed    = 128.0;  // map units a second
+server int   rss_train_gap      = 140;    // tics between one band leaving and the next
+
+// A ping from you. One band, restarting on an interval rather than cycling
+// continuously, so it reads as a device rather than as the room.
+server bool  rss_ping          = false;
+server float rss_ping_every    = 3.0;    // seconds between pings, or longer if it is still travelling
+server float rss_ping_speed    = 1.1;    // 1 crosses the reach in exactly the interval
+server float rss_ping_reach    = 1100.0;
+
+// The world answering. Each of these spawns a band at the thing that happened.
+server bool  rss_ev_kill       = true;
+server bool  rss_ev_explode    = true;
+server bool  rss_ev_hurt       = false;  // when YOU take damage
+server float rss_ev_life       = 1.1;    // seconds a fired band lives, at speed 1
+server float rss_ev_reach      = 700.0;  // how far it travels; the sweeps take the map's own
+server float rss_ev_speed      = 1.0;    // divides the life: the band always travels its reach
+server int   rss_ev_shape      = 1;
+server int   rss_ev_slots      = 4;      // how many of the eight events may hold
+
+// ---------------------------------------------------------------- the band --
+
+server float rss_thickness     = 26.0;   // world units of full strength
+server float rss_softness      = 0.55;   // falloff exponent past the thickness
+server float rss_intensity     = 1.30;
+// Wake, in map units, signed; 0 = symmetric. The shader only stretches a band
+// when this is LONGER than the band's thickness -- shorter, and it stays
+// symmetric. See SweepBandAttenAt in main.fp.
+server float rss_trail         = 0.0;
+server int   rss_draw          = 1;      // 1 add, 2 lift, 3 crush, 4 recolour the glow it covers
+
+// Fade out as the band reaches the end of its travel, so it does not simply
+// stop existing at full brightness.
+server float rss_fade          = 0.35;   // fraction of the life spent fading
+
+// -------------------------------------------------------------- the colour --
+
+server int   rss_col_r         = 120;
+server int   rss_col_g         = 200;
+server int   rss_col_b         = 255;
+
+// A second colour the band crosses into as it travels. Mix 0 = one colour.
+server float rss_col_mix       = 0.0;
+server int   rss_col2_r        = 255;
+server int   rss_col2_g        = 90;
+server int   rss_col2_b        = 160;
+
+// ------------------------------------------------------------- each band --
+//
+// Off, every standing band wears the one colour, thickness and draw mode above.
+// On, standing band N takes its own from here -- which is what lets a train be
+// a bar of music rather than eight copies of one note: a wide downbeat, narrow
+// ticks, one band that crushes instead of adding.
+//
+// Thickness and draw 0 mean "use the shared value", so a table that only wants
+// its own colours says nothing else. Fired bands and the ping always use the
+// shared values; this table is for the standing bands.
+//
+// The colours default to Neon Unison's arch -- near white, down through gold
+// to deep orange at band 4, and back up to cream at band 8.
+server bool  rss_perband       = false;
+server color rss_band_col1     = "ff f2 d8";
+server color rss_band_col2     = "ff c2 4a";
+server color rss_band_col3     = "ff a0 20";
+server color rss_band_col4     = "ff 7a 12";
+server color rss_band_col5     = "07 13 1c";
+server color rss_band_col6     = "ff 8c 1e";
+server color rss_band_col7     = "ff b4 3a";
+server color rss_band_col8     = "ff d8 6e";
+server int   rss_band_thick1   = 0;
+server int   rss_band_thick2   = 0;
+server int   rss_band_thick3   = 0;
+server int   rss_band_thick4   = 0;
+server int   rss_band_thick5   = 0;
+server int   rss_band_thick6   = 0;
+server int   rss_band_thick7   = 0;
+server int   rss_band_thick8   = 0;
+server int   rss_band_draw1    = 0;
+server int   rss_band_draw2    = 0;
+server int   rss_band_draw3    = 0;
+server int   rss_band_draw4    = 0;
+server int   rss_band_draw5    = 0;
+server int   rss_band_draw6    = 0;
+server int   rss_band_draw7    = 0;
+server int   rss_band_draw8    = 0;
+
+// --------------------------------------------------------------- lattice --
+//
+// The pattern drawn INSIDE a band. The band's own colour is the field, this
+// colour is the lines, and spacing 0 in an axis means no lines in that axis --
+// so a grid, slats and a single tripwire are all one mode.
+//
+// AIR is the part nothing else in this family can do. At 0 the lattice is
+// painted onto whatever surfaces the band lands on; above 0 it also hangs in
+// the air, so you walk through a grid of light rather than looking at one.
+// It costs more per fragment inside a band, which is why the quiet presets
+// leave it at 0.
+
+server int   rss_fill          = 0;      // 0 none, 1 grid, 2 dots, 3 solid slab
+server float rss_fill_u        = 48.0;   // spacing across, world units
+server float rss_fill_v        = 48.0;   // spacing up
+server float rss_fill_width    = 3.0;
+server float rss_fill_soft     = 1.5;
+server float rss_fill_gap      = 0.35;   // how lit the space between lines is
+server float rss_fill_air      = 0.0;
+
+server int   rss_fill_r        = 255;
+server int   rss_fill_g        = 255;
+server int   rss_fill_b        = 255;
+
+// How the lattice moves within the band. Rotate is degrees, drift slides it
+// along, major thickens every Nth line, jitter and flicker are the two ways of
+// making it look driven rather than drawn.
+server float rss_fill_rotate   = 0.0;
+server float rss_fill_drift    = 0.0;
+server float rss_fill_major    = 0.0;
+server float rss_fill_boost    = 2.0;
+server float rss_fill_jitter   = 0.0;
+server float rss_fill_flicker  = 0.0;
+server float rss_fill_grad     = 0.0;
+server int   rss_fill_grad_axis = 0;
+
+// ------------------------------------------------- what a sweep DOES to it --
+//
+// The frontier can act on what it passes. Everything here is off by default:
+// a sweep is a light until you ask it to be more than that.
+
+server bool  rss_fx           = false;   // master switch for all of it
+server bool  rss_fx_sectors   = true;    // test sectors as the front passes
+server bool  rss_fx_actors    = true;    // test actors
+
+// THE RETIER. Triggers RS_MonsterMaster's staggered neutral/glow/neutral
+// sequence on monsters the front reaches. Step is signed, so a sweep can tier
+// DOWN as readily as up. Vanilla monsters have no ladder and are skipped.
+server bool  rss_fx_tier      = false;
+server int   rss_fx_tier_step = 1;
+
+server bool  rss_fx_fog       = false;
+server float rss_fx_fog_radius   = 160.0;
+server float rss_fx_fog_strength = 0.7;
+server float rss_fx_fog_speed    = 200.0;
+server float rss_fx_fog_life     = 0.8;
+
+server bool  rss_fx_recolour  = false;
+server float rss_fx_recolour_reach = 140.0;
+
+server bool  rss_fx_rouse     = false;
+
+// Which tier a sweep sets. TRUE means the sweep's own colour picks the rung --
+// a blue sweep makes blue monsters, the same band that turned the fog blue.
+// FALSE falls back to the signed step above, for a sweep that should promote or
+// demote whatever it finds regardless of colour.
+server bool  rss_fx_tier_bycolour = true;
+
+// Call Actor.OnSweepCrossed on what the front reaches. On by default, but
+// skipped entirely when nothing that overrides the hook is loaded -- otherwise
+// a sweep with no monster mod present would walk every actor in the level to
+// call an empty function on each. Force it on if some OTHER mod overrides the
+// hook and RS_Sweeps has no way to know.
+server bool  rss_fx_crossed        = true;
+server bool  rss_fx_crossed_always = false;
+
+// ---- glow ----
+server bool  rss_fx_glow       = false;
+server float rss_fx_glow_wall  = 96.0;    // how far the wall glow reaches, 0 = leave walls
+server float rss_fx_glow_flat  = 140.0;   // the flat-edge glow, 0 = leave flats
+
+// ---- sector light ----
+server bool  rss_fx_light      = false;
+server int   rss_fx_light_step = -32;     // signed: negative puts rooms out
+server int   rss_fx_light_floor = 0;
+server int   rss_fx_light_ceil  = 255;
+
+// ---- fog colour ----
+// Written through RS_Fog's nosave rsf_tint_r/g/b and rsf_tint_mix, which it
+// pushes in place of its own gradient while the mix is above 0. A direct
+// SetFogGradient was put back by RS_Fog's own push before a frame was drawn.
+// The mix returns to 0 when the last band ends and at every map change.
+server bool  rss_fx_fogtint     = false;
+server float rss_fx_fogtint_mix = 0.7;
+
+// ---- darkness ----
+// Written through RS_Darkness's nosave rsd_sweep_offset, which it adds on top
+// of rsd_adjust -- never through rsd_adjust itself, a server cvar and the
+// player's own saved Amount, which a sweep used to change for good. Published
+// at most once a tic, back to 0 when the last band ends and at every map
+// change. An RS_Darkness without the offset cvar is treated as absent. The
+// limits are on where the darkness ends up, in rsd_adjust units.
+server bool  rss_fx_dark      = false;
+server float rss_fx_dark_step = 8.0;      // signed
+server float rss_fx_dark_min  = 0.0;
+server float rss_fx_dark_max  = 224.0;
+
+// ---- colour drain ----
+server bool  rss_fx_desat       = false;
+server float rss_fx_desat_step  = 0.05;
+server bool  rss_fx_desat_reset = true;   // put it back when the last band ends (a map change always does)
+
+// ---- decorations ----
+server bool  rss_fx_decor           = false;
+server bool  rss_fx_decor_monsters  = false;
+server float rss_fx_decor_strength  = 0.8;
+server float rss_fx_decor_thickness = 1.2;
+server float rss_fx_decor_threshold = 0.2;
+server float rss_fx_decor_glow      = 2.5;
+
+// ------------------------------------------------------- behind the line --
+//
+// THE AFTER-LOOK. Everything a band's front has already crossed is graded per
+// pixel -- tinted, darkened, drained -- so the change follows the line exactly
+// rather than flipping a room when its centre is crossed. The per-sector
+// Effects above still do that, and still carry the gameplay; this is only the
+// picture.
+//
+// Standing bands on Once timing and fired bands. Never a looping band, which
+// would grade its whole reach and snap back every cycle. A Once pass that
+// arrives leaves one band parked past the far edge at brightness 0, so the
+// look stays for the rest of the map until the next pass is sent. A fired band
+// keeps it only while it lives.
+//
+// One look shared by every passed band. The engine grades the room's own light
+// only: glow, the bands, beams and fullbright things keep their colour. Off by
+// default.
+server bool  rss_after         = false;
+server int   rss_after_r       = 140;
+server int   rss_after_g       = 160;
+server int   rss_after_b       = 220;
+server float rss_after_mix     = 0.5;    // how far the light is multiplied toward the tint
+server float rss_after_darken  = 0.3;    // how much light is taken away
+server float rss_after_desat   = 0.6;    // how much colour is drained
+server float rss_after_soft    = 128.0;  // map units the look fades in over behind the front
+
+// ---- which kills are worth a sweep ----
+//
+// Empty class name means any monster. Naming one catches that class and
+// everything descended from it, so one entry covers every colour of a family.
+server string rss_ev_class     = "";
+
+// Only monsters at or above this tier. Read as an inventory count, so it needs
+// no reference to the monster mod at all and is simply 0 when it is absent --
+// which means any floor above 0 also means "only tiered monsters". It counts
+// RS_ZomTierToken only: RS_MonsterMaster keeps its tier in a field and gives no
+// token, so those monsters never pass a floor above 0 until RS_Main mirrors it.
+server int    rss_ev_tier_min  = 0;
+
+// Bosses only. Counts three things that do not agree with each other: the BOSS
+// flag, the BOSSDEATH flag, and sheer size -- a colour-tier boss is often
+// neither flagged nor scripted and is just enormous. 0 health disables the
+// size test.
+server bool   rss_ev_bossonly    = false;
+server int    rss_ev_boss_health = 1500;
+
+// ================= RS_Bloom =================
+// RS_Bloom -- CVars
+//
+// WHY THIS MOD EXISTS.
+//
+// Bloom is what turns an over-bright pixel into a glow. Every emissive thing in
+// this family deliberately writes past 1.0 for exactly that reason -- the neon
+// core at 2.6, the white cores in the surface stamps, a wall of light at 2.6
+// intensity. None of that reads as LIGHT until bloom picks it up; without it
+// they are just pale pixels.
+//
+// The engine already had the controls, including this fork's own additions --
+// a lowerable threshold, a soft knee, anamorphic streaking, a bloom tint and
+// chromatic fringing. Not one of them appeared in any menu in this family, so
+// the single setting the whole lighting set depends on was whatever it happened
+// to be, adjustable only from the console.
+//
+// EVERY SLIDER HERE DRIVES AN ENGINE gl_bloom_* / gl_exposure_* CVAR DIRECTLY.
+// This mod adds no render state of its own -- it is a menu and a set of presets
+// for controls that already existed. That is deliberate: bloom is global, one
+// pass, shared by every mod, and a second copy of it would be a second thing to
+// keep in step.
+//
+// NOSAVE, ALL THREE. These are this machine's display preferences, like the
+// gl_bloom_* cvars they drive. As server cvars they rode along in savegames, so
+// loading a save made under another preset changed rsb_preset and stamped that
+// preset over the player's own bloom settings.
+
+nosave bool rsb_enabled = true;
+// -1 = None: leave bloom as it is. Any preset changes the grab laser and Lance
+// glow (they are tuned to the engine's threshold), so nothing applies until a
+// preset is picked.
+nosave int  rsb_preset  = -1;
+
+// Internal: the preset last applied, so it only re-applies when it changes. The
+// "Re-apply preset" row sets this to -1 to stamp the current preset again after
+// tuning by hand.
+nosave int  rsb_preset_applied = -1;
+
+// ---- BLOOM THAT REACTS (zscript/rsb_reactive.zs) ---------------------------
+//
+// NOSAVE like the rest: display preferences for this machine.
+//
+// The master starts OFF: every reaction changes how the grab lasers and the
+// Lance glow while it lasts, so it waits for the owner's A/B. The effects under
+// it start on, so the one switch brings them all in.
+nosave bool rsb_reactive    = false;
+nosave bool rsb_rx_flash    = true;
+nosave bool rsb_rx_breathe  = true;
+nosave bool rsb_rx_sweep    = true;
+nosave bool rsb_rx_hurt     = true;
+// Follow the dark moves the threshold all the time rather than for a moment,
+// so it changes the laser glow continuously. Off until the laser exclusion.
+nosave bool rsb_rx_dark     = false;
+
+// ================= RS_Flashlight =================
+// RS_Flashlight -- CVars
+//
+// A cone of lit AIR rather than a lit disc on the wall. Raymarched as a
+// postprocess pass, bounded first by an analytic ray/cone intersection so a
+// beam pointing away from you costs a depth sample and a few dot products.
+//
+// The ON/OFF is deliberately NOT here. It is an inventory token, because a cvar
+// lives on one machine and nobody else's client would know your torch was lit.
+
+// The whole mod, on or off. The host's call, so it stays server.
+server bool  rsfl_enabled     = true;
+
+// EVERYTHING BELOW IS `user`, NOT `server`.
+//
+// Where the torch sits and what the beam looks like change only what THIS
+// machine draws -- the beam is published for the console player alone. As
+// server cvars they were the host's to set, so in a netgame nobody else could
+// pick their own mount or colour.
+
+// Where the torch is held. The engine reads the pose every FRAME
+// (SetVolumetricBeamAnchor), so a hand torch does not judder behind the
+// controller the way a pose published at 35 Hz did.
+//   0 head    -- the headset, or the view on a flat screen
+//   1 off hand
+//   2 the weapon hand
+//
+// The off hand is the one worth having in VR: you can light a doorway while
+// aiming somewhere else. Head-mounted always points where you already look, and
+// a cone seen end-on is a disc -- the engine fades that case (vol_beam_axisfade).
+user int   rsfl_mount       = 1;
+
+// Where on the mount the lens is, in map units, in the MOUNT'S OWN frame: they
+// turn with the hand or head, so "forward" stays along the beam however you
+// hold it.
+user float rsfl_offset_fwd  = 0.0;
+user float rsfl_offset_side = 0.0;    // + right
+user float rsfl_offset_z    = -4.0;   // + up
+
+// ------------------------------------------------------------------ shape --
+user float rsfl_inner       = 11.0;    // degrees, full brightness inside
+user float rsfl_outer       = 26.0;    // degrees, faded to nothing by here
+user float rsfl_length      = 1400.0;
+user float rsfl_density     = 0.5;
+
+// ---- weight and sway -------------------------------------------------------
+//
+// A torch welded to your hand reads as a torch painted on the screen. Weight makes it trail
+// the hand; sway hangs it below on a spring so it swings and settles, which is what anything
+// held by a handle does.
+//
+// Both zero is welded, which is how it has always been. Set on the ANCHOR, so the cone and
+// the light it casts on the wall move together -- a cone that lags while its own light does
+// not is worse than no lag.
+user float rsfl_weight      = 0.0;   // seconds to close most of the gap (0 to 2)
+user float rsfl_sway        = 0.0;   // how far it hangs and swings (0 to 4)
+user float rsfl_sway_damp   = 0.5;   // 0 floppy, 1 stiff
+// Above 1 concentrates the light near the lens, which is what stops a long
+// beam looking like a strip light.
+user float rsfl_falloff     = 1.8;
+
+// ------------------------------------------------------------------- spot --
+// The light the torch throws on walls, floors and monsters: a real dynamic
+// spot light on the pawn, shaped by the cone above -- same angles, same colour,
+// and it dies out where the beam's reach does. This is its brightness. 0 takes
+// the light off entirely and leaves only the lit air, exactly as before.
+//
+// It does not flicker. rsfl_flicker moves every tic, and following it would
+// rebuild the pawn's lights 35 times a second.
+user float rsfl_spot        = 1.0;
+
+// Walls block it. ON by default because a dynamic light without the shadowmap
+// has no occlusion at all -- with the reach this one has, it lit the room on
+// the far side of the wall you were facing and the monster behind the door.
+// The cost is one shadowmap row, and the shadow edge of a light held in a hand
+// trails the hand by a frame. Needs gl_light_shadowmap on to do anything.
+user bool  rsfl_spot_shadows = true;
+
+// ------------------------------------------------------------------- dust --
+// Sampled in WORLD space, so motes hang in the room rather than travelling
+// with the torch -- sweeping the beam reveals different dust, the way it should.
+user float rsfl_dust        = 0.45;
+user float rsfl_dust_scale  = 0.035;   // higher = finer motes
+// Map units a second. One noise cell is 1 / rsfl_dust_scale units (about 29 at
+// the default), so anything much under 5 reads as dust hanging still.
+user float rsfl_dust_drift  = 0.35;
+
+// Deterministic, never random() -- the RNG seed is in the netgame consistency
+// checksum and a wobble is not worth spending it on.
+user float rsfl_flicker     = 0.08;
+
+// ----------------------------------------------------------------- colour --
+user int   rsfl_r           = 255;
+user int   rsfl_g           = 244;
+user int   rsfl_b           = 214;
+
+// ================= Radiance =================
+// The Look picker and the switches on the top page. Display preferences for
+// this machine, so nosave like RS_Bloom's.
+nosave int   rsr_look           = 0;
+nosave int   rsr_look_applied   = 0;
+nosave int   rsr_bloom_pending  = -1;
+nosave bool  rsr_reactive       = false;
+nosave int   rsr_reactive_applied = -1;
+nosave bool  rsr_rand_map       = false;
+nosave bool  rsr_rand_death     = false;
+// Glow brightness on the top page: multiplies every lane's intensity.
+server float gitd_master        = 1.0;
+// Radiance's live multiplier on the glow throb (Low Power's bursts). Local.
+nosave float gitd_pulse_mod     = 1.0;

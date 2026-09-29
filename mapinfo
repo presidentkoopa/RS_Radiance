@@ -1,0 +1,12 @@
+// Every handler from the six effects, plus the Look picker.
+GameInfo
+{
+	AddEventHandlers = "RSD_Handler"
+	AddEventHandlers = "GITD_Handler"
+	AddEventHandlers = "RSF_Handler"
+	AddEventHandlers = "RSS_Handler"
+	AddEventHandlers = "RSS_Registry"
+	AddEventHandlers = "RSB_ReactiveHandler"
+	AddEventHandlers = "RSFL_Handler"
+	AddEventHandlers = "RSR_Handler"
+}

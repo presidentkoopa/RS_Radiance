@@ -1,0 +1,35 @@
+// RS_Radiance -- engine is UZDXREMA.
+version "4.12"
+
+// Darkness
+#include "zscript/rsd_presets.zs"
+#include "zscript/rsd_handler.zs"
+#include "zscript/rsd_service.zs"
+#include "zscript/rsd_menu.zs"
+// Glow
+#include "zscript/gitd_util.zs"
+#include "zscript/gitd_policy.zs"
+#include "zscript/gitd_presets.zs"
+#include "zscript/gitd_textures.zs"
+#include "zscript/gitd_handler.zs"
+#include "zscript/gitd_menu.zs"
+// Fog
+#include "zscript/rsf_util.zs"
+#include "zscript/rsf_presets.zs"
+#include "zscript/rsf_handler.zs"
+// Sweeps
+#include "zscript/rss_util.zs"
+#include "zscript/rss_effects.zs"
+#include "zscript/rss_presets.zs"
+#include "zscript/rss_handler.zs"
+// Bloom
+#include "zscript/rsb_presets.zs"
+#include "zscript/rsb_menu.zs"
+#include "zscript/rsb_override.zs"
+#include "zscript/rsb_reactive.zs"
+// Flashlight
+#include "zscript/rsfl_handler.zs"
+// Looks, the top menu, randomising
+#include "zscript/rsr_looks.zs"
+#include "zscript/rsr_handler.zs"
+#include "zscript/rsr_menu.zs"
