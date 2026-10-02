@@ -424,6 +424,27 @@ class RSR_Looks
 	// knee 0.5, tint white.
 	static void BloomLook(int look)
 	{
+		// L_NONE MEANS HANDS OFF, AND IT DID NOT (fixed 2026-10-02).
+		//
+		// The switch below has no L_NONE case, so look 0 fell straight through it and still
+		// called SetBloomLook with the locals above -- 1.4 / 1.0 / 0.5, white. Those are the
+		// ENGINE's defaults, not the player's. So choosing "no look" did not stop Radiance
+		// writing bloom; it silently replaced whatever the player had in gl_bloom_* with the
+		// stock numbers.
+		//
+		// And WorldLoaded calls this on EVERY map load, savegame and reopen -- deliberately,
+		// because the layer is dropped in all three cases -- so it happened again every time
+		// you entered a level. You could set bloom, watch it take, and find it gone through
+		// the next door, with nothing logged and no obvious culprit.
+		//
+		// ClearBloomLook (doombase.zs:1782) drops the layer entirely and hands bloom back to
+		// gl_bloom_*, which is what "none" has always meant to the person choosing it.
+		if (look <= L_NONE)
+		{
+			level.ClearBloomLook();
+			return;
+		}
+
 		double amount = 1.4, threshold = 1.0, knee = 0.5;
 		double r = 1.0, g = 1.0, b = 1.0;
 
